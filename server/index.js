@@ -2,7 +2,7 @@ import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createContour, deleteContour, listContours, listContoursByIds } from './db.js'
+import { createContour, deleteContour, getContour, listContours, listContoursByIds } from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -54,6 +54,13 @@ function canAccessAllContours(user) {
   return user.availableContours?.includes('all')
 }
 
+function canAccessContour(user, contourId) {
+  return (
+    canAccessAllContours(user) ||
+    (user.availableContours ?? []).some((id) => Number(id) === contourId)
+  )
+}
+
 function requireAdmin(request, response) {
   if (request.user.role === 'admin') {
     return true
@@ -69,6 +76,29 @@ app.get('/api/contours', withAuth((request, response) => {
     : listContoursByIds(request.user.availableContours ?? [])
 
   response.json({ contours })
+}))
+
+app.get('/api/contours/:id', withAuth((request, response) => {
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id) || id <= 0) {
+    response.status(400).json({ message: 'Некорректный id контура.' })
+    return
+  }
+
+  if (!canAccessContour(request.user, id)) {
+    response.status(403).json({ message: 'Нет доступа к контуру.' })
+    return
+  }
+
+  const contour = getContour(id)
+
+  if (!contour) {
+    response.status(404).json({ message: 'Контур не найден.' })
+    return
+  }
+
+  response.json({ contour })
 }))
 
 app.post('/api/contours', withAuth((request, response) => {

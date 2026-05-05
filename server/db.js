@@ -71,6 +71,11 @@ export function listContoursByIds(ids) {
   return rows.map(toContour)
 }
 
+export function getContour(id) {
+  const contour = statements.getContour.get(id)
+  return contour ? toContour(contour) : null
+}
+
 export function createContour({ name, description }) {
   const result = statements.createContour.run(name, description)
   return toContour(statements.getContour.get(result.lastInsertRowid))

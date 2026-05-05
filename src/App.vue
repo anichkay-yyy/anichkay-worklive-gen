@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { LogOut, Plus, Trash2 } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { ArrowLeft, LogOut, Plus, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -27,10 +27,13 @@ import { getCurrentUser, login, logout } from '@/lib/auth'
 const currentUser = ref(null)
 const authLoading = ref(true)
 const loginSubmitting = ref(false)
+const currentPath = ref(window.location.pathname)
 const contours = ref([])
 const loading = ref(false)
+const detailLoading = ref(false)
 const saving = ref(false)
 const deletingId = ref(null)
+const selectedContour = ref(null)
 const createDialogOpen = ref(false)
 const error = ref('')
 const loginError = ref('')
@@ -46,6 +49,11 @@ const form = reactive({
 })
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const contourPageId = computed(() => {
+  const match = currentPath.value.match(/^\/contours\/(\d+)$/)
+  return match ? Number(match[1]) : null
+})
+const isContourPage = computed(() => contourPageId.value !== null)
 const canCreate = computed(() => form.name.trim().length > 0 && !saving.value && isAdmin.value)
 const canLogin = computed(
   () => loginForm.login.trim().length > 0 && loginForm.password.length > 0 && !loginSubmitting.value,
@@ -91,6 +99,15 @@ async function requestJson(url, options = {}) {
   return response.json()
 }
 
+function syncPath() {
+  currentPath.value = window.location.pathname
+}
+
+function pushPath(path) {
+  window.history.pushState({}, '', path)
+  syncPath()
+}
+
 function handleApiError(requestError) {
   if (requestError.status === 401) {
     currentUser.value = null
@@ -112,6 +129,15 @@ function openCreateDialog() {
   createDialogOpen.value = true
 }
 
+async function loadActivePage() {
+  if (isContourPage.value) {
+    await loadContour(contourPageId.value)
+    return
+  }
+
+  await loadContours()
+}
+
 async function loadContours() {
   if (!currentUser.value) {
     loading.value = false
@@ -131,6 +157,26 @@ async function loadContours() {
   }
 }
 
+async function loadContour(id) {
+  if (!currentUser.value) {
+    detailLoading.value = false
+    return
+  }
+
+  detailLoading.value = true
+  error.value = ''
+
+  try {
+    const payload = await requestJson(`/api/contours/${id}`)
+    selectedContour.value = payload.contour
+  } catch (requestError) {
+    selectedContour.value = null
+    handleApiError(requestError)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
 async function loadAuth() {
   authLoading.value = true
   loginError.value = ''
@@ -139,7 +185,7 @@ async function loadAuth() {
     currentUser.value = await getCurrentUser()
 
     if (currentUser.value) {
-      await loadContours()
+      await loadActivePage()
     }
   } catch (requestError) {
     loginError.value = requestError.message
@@ -162,7 +208,7 @@ async function submitLogin() {
       password: loginForm.password,
     })
     loginForm.password = ''
-    await loadContours()
+    await loadActivePage()
   } catch (requestError) {
     loginError.value = requestError.message
   } finally {
@@ -176,8 +222,32 @@ async function logoutUser() {
   } finally {
     currentUser.value = null
     contours.value = []
+    selectedContour.value = null
     error.value = ''
     loading.value = false
+    detailLoading.value = false
+    pushPath('/')
+  }
+}
+
+function openContourPage(contour) {
+  selectedContour.value = contour
+  pushPath(`/contours/${contour.id}`)
+  void loadContour(contour.id)
+}
+
+function goToContours() {
+  selectedContour.value = null
+  error.value = ''
+  pushPath('/')
+  void loadContours()
+}
+
+function handlePopstate() {
+  syncPath()
+
+  if (currentUser.value) {
+    void loadActivePage()
   }
 }
 
@@ -227,7 +297,15 @@ async function removeContour(id) {
   }
 }
 
-onMounted(loadAuth)
+onMounted(() => {
+  syncPath()
+  window.addEventListener('popstate', handlePopstate)
+  void loadAuth()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopstate)
+})
 </script>
 
 <template>
@@ -292,10 +370,23 @@ onMounted(loadAuth)
     <div v-else class="mx-auto flex min-h-svh w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header class="flex flex-col gap-5 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div class="space-y-2">
-          <h1 class="text-3xl font-semibold leading-tight sm:text-4xl">Контуры</h1>
-          <p class="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Список сущностей с названием и описанием.
-          </p>
+          <template v-if="isContourPage">
+            <Button type="button" variant="outline" size="sm" @click="goToContours">
+              <ArrowLeft class="size-4" />
+              Контуры
+            </Button>
+            <p class="text-sm leading-6 text-muted-foreground">Контур</p>
+            <h1 class="break-words text-3xl font-semibold leading-tight sm:text-4xl">
+              {{ selectedContour?.name || 'Контур' }}
+            </h1>
+          </template>
+
+          <template v-else>
+            <h1 class="text-3xl font-semibold leading-tight sm:text-4xl">Контуры</h1>
+            <p class="max-w-2xl text-sm leading-6 text-muted-foreground">
+              Список сущностей с названием и описанием.
+            </p>
+          </template>
         </div>
 
         <div class="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
@@ -310,7 +401,7 @@ onMounted(loadAuth)
 
           <div class="flex gap-2">
             <Button
-              v-if="isAdmin"
+              v-if="isAdmin && !isContourPage"
               type="button"
               size="icon"
               title="Добавить контур"
@@ -344,7 +435,26 @@ onMounted(loadAuth)
             {{ error }}
           </div>
 
-          <div v-if="loading" class="grid gap-3 md:grid-cols-2">
+          <div v-if="isContourPage && detailLoading" class="max-w-2xl rounded-lg border bg-card p-6">
+            <Skeleton class="mb-3 h-4 w-20" />
+            <Skeleton class="h-8 w-2/3" />
+          </div>
+
+          <div
+            v-else-if="isContourPage && !selectedContour && !error"
+            class="flex min-h-72 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center"
+          >
+            <div class="max-w-sm space-y-2">
+              <h3 class="text-lg font-medium">Контур не найден</h3>
+              <p class="text-sm leading-6 text-muted-foreground">
+                Вернись к списку контуров.
+              </p>
+            </div>
+          </div>
+
+          <div v-else-if="isContourPage" />
+
+          <div v-else-if="loading" class="grid gap-3 md:grid-cols-2">
             <div v-for="index in 4" :key="index" class="rounded-lg border bg-card p-5">
               <Skeleton class="mb-4 h-5 w-2/3" />
               <Skeleton class="mb-2 h-4 w-full" />
@@ -365,7 +475,15 @@ onMounted(loadAuth)
           </div>
 
           <div v-else class="grid gap-3 md:grid-cols-2">
-            <Card v-for="contour in contours" :key="contour.id">
+            <Card
+              v-for="contour in contours"
+              :key="contour.id"
+              class="cursor-pointer transition-colors hover:border-foreground/30"
+              role="button"
+              tabindex="0"
+              @click="openContourPage(contour)"
+              @keydown.enter.prevent="openContourPage(contour)"
+            >
               <CardHeader>
                 <CardTitle class="min-w-0 break-words pr-2 leading-snug">{{ contour.name }}</CardTitle>
                 <CardDescription class="text-xs">#{{ contour.id }}</CardDescription>
@@ -377,7 +495,7 @@ onMounted(loadAuth)
                     :disabled="deletingId === contour.id"
                     title="Удалить"
                     :aria-label="`Удалить контур ${contour.name}`"
-                    @click="removeContour(contour.id)"
+                    @click.stop="removeContour(contour.id)"
                   >
                     <Trash2 class="size-4" />
                   </Button>
