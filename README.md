@@ -1,5 +1,42 @@
-# Vue 3 + Vite
+# anichkay-worklive-gen
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue + Vite app with a Node backend and a separate cookie-based auth service.
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## Development
+
+```sh
+npm install
+npm run dev
+```
+
+- Web: `http://127.0.0.1:5173`
+- API service: `http://127.0.0.1:3001`
+- Auth service: `http://127.0.0.1:3002`
+
+Vite proxies `/api/*` to the API service and `/auth/*` to the auth service.
+
+Run only the auth service:
+
+```sh
+npm run auth
+```
+
+Run the auth service without watch mode:
+
+```sh
+npm run start:auth
+```
+
+## Auth Service
+
+The auth service stores users and sessions in `data/auth.sqlite`.
+
+Endpoints:
+
+- `GET /auth/health`
+- `POST /auth/register` with `{ "email": "...", "password": "..." }`
+- `POST /auth/login` with `{ "email": "...", "password": "..." }`
+- `GET /auth/me`
+- `POST /auth/logout`
+
+Sessions use an `HttpOnly` cookie named `worklive_session`. The raw session token is only sent to the browser as a cookie; SQLite stores a SHA-256 hash of the token.
