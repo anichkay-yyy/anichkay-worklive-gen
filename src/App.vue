@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Plus, Trash2 } from 'lucide-vue-next'
+import { LogOut, Plus, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -22,19 +22,43 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { getCurrentUser, login, logout } from '@/lib/auth'
 
+const currentUser = ref(null)
+const authLoading = ref(true)
+const loginSubmitting = ref(false)
 const contours = ref([])
-const loading = ref(true)
+const loading = ref(false)
 const saving = ref(false)
 const deletingId = ref(null)
 const createDialogOpen = ref(false)
 const error = ref('')
+const loginError = ref('')
+
+const loginForm = reactive({
+  login: 'anichkay',
+  password: '',
+})
+
 const form = reactive({
   name: '',
   description: '',
 })
 
-const canCreate = computed(() => form.name.trim().length > 0 && !saving.value)
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const canCreate = computed(() => form.name.trim().length > 0 && !saving.value && isAdmin.value)
+const canLogin = computed(
+  () => loginForm.login.trim().length > 0 && loginForm.password.length > 0 && !loginSubmitting.value,
+)
+const availableContoursLabel = computed(() => {
+  const contoursAccess = currentUser.value?.availableContours ?? []
+
+  if (contoursAccess.includes('all')) {
+    return 'all contours'
+  }
+
+  return contoursAccess.length > 0 ? contoursAccess.join(', ') : 'нет доступных контуров'
+})
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -55,7 +79,9 @@ async function requestJson(url, options = {}) {
       // Keep the fallback message when API returned no JSON body.
     }
 
-    throw new Error(message)
+    const requestError = new Error(message)
+    requestError.status = response.status
+    throw requestError
   }
 
   if (response.status === 204) {
@@ -65,7 +91,21 @@ async function requestJson(url, options = {}) {
   return response.json()
 }
 
+function handleApiError(requestError) {
+  if (requestError.status === 401) {
+    currentUser.value = null
+    contours.value = []
+    return
+  }
+
+  error.value = requestError.message
+}
+
 function openCreateDialog() {
+  if (!isAdmin.value) {
+    return
+  }
+
   form.name = ''
   form.description = ''
   error.value = ''
@@ -73,6 +113,11 @@ function openCreateDialog() {
 }
 
 async function loadContours() {
+  if (!currentUser.value) {
+    loading.value = false
+    return
+  }
+
   loading.value = true
   error.value = ''
 
@@ -80,8 +125,58 @@ async function loadContours() {
     const payload = await requestJson('/api/contours')
     contours.value = payload.contours
   } catch (requestError) {
-    error.value = requestError.message
+    handleApiError(requestError)
   } finally {
+    loading.value = false
+  }
+}
+
+async function loadAuth() {
+  authLoading.value = true
+  loginError.value = ''
+
+  try {
+    currentUser.value = await getCurrentUser()
+
+    if (currentUser.value) {
+      await loadContours()
+    }
+  } catch (requestError) {
+    loginError.value = requestError.message
+  } finally {
+    authLoading.value = false
+  }
+}
+
+async function submitLogin() {
+  if (!canLogin.value) {
+    return
+  }
+
+  loginSubmitting.value = true
+  loginError.value = ''
+
+  try {
+    currentUser.value = await login({
+      login: loginForm.login,
+      password: loginForm.password,
+    })
+    loginForm.password = ''
+    await loadContours()
+  } catch (requestError) {
+    loginError.value = requestError.message
+  } finally {
+    loginSubmitting.value = false
+  }
+}
+
+async function logoutUser() {
+  try {
+    await logout()
+  } finally {
+    currentUser.value = null
+    contours.value = []
+    error.value = ''
     loading.value = false
   }
 }
@@ -108,13 +203,17 @@ async function createNewContour() {
     form.name = ''
     form.description = ''
   } catch (requestError) {
-    error.value = requestError.message
+    handleApiError(requestError)
   } finally {
     saving.value = false
   }
 }
 
 async function removeContour(id) {
+  if (!isAdmin.value) {
+    return
+  }
+
   deletingId.value = id
   error.value = ''
 
@@ -122,18 +221,76 @@ async function removeContour(id) {
     await requestJson(`/api/contours/${id}`, { method: 'DELETE' })
     contours.value = contours.value.filter((contour) => contour.id !== id)
   } catch (requestError) {
-    error.value = requestError.message
+    handleApiError(requestError)
   } finally {
     deletingId.value = null
   }
 }
 
-onMounted(loadContours)
+onMounted(loadAuth)
 </script>
 
 <template>
   <main class="min-h-svh bg-background text-foreground">
-    <div class="mx-auto flex min-h-svh w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div
+      v-if="authLoading"
+      class="mx-auto flex min-h-svh w-full max-w-md items-center px-4 py-6 sm:px-6"
+    >
+      <div class="w-full rounded-lg border bg-card p-6">
+        <Skeleton class="mb-4 h-6 w-32" />
+        <Skeleton class="mb-2 h-10 w-full" />
+        <Skeleton class="h-10 w-full" />
+      </div>
+    </div>
+
+    <div
+      v-else-if="!currentUser"
+      class="mx-auto flex min-h-svh w-full max-w-md items-center px-4 py-6 sm:px-6"
+    >
+      <Card class="w-full">
+        <CardHeader>
+          <CardTitle>Вход</CardTitle>
+          <CardDescription>Авторизация через cookie session</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form class="space-y-5" @submit.prevent="submitLogin">
+            <div class="space-y-2">
+              <Label for="login">Логин</Label>
+              <Input
+                id="login"
+                v-model="loginForm.login"
+                autocomplete="username"
+                placeholder="anichkay"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <Label for="password">Пароль</Label>
+              <Input
+                id="password"
+                v-model="loginForm.password"
+                type="password"
+                autocomplete="current-password"
+              />
+            </div>
+
+            <div
+              v-if="loginError"
+              class="rounded-md border bg-background px-3 py-2 text-sm text-foreground"
+              role="alert"
+            >
+              {{ loginError }}
+            </div>
+
+            <Button type="submit" class="w-full" :disabled="!canLogin">
+              Войти
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+
+    <div v-else class="mx-auto flex min-h-svh w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header class="flex flex-col gap-5 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div class="space-y-2">
           <h1 class="text-3xl font-semibold leading-tight sm:text-4xl">Контуры</h1>
@@ -142,16 +299,39 @@ onMounted(loadContours)
           </p>
         </div>
 
-        <div class="flex w-full gap-2 sm:w-auto">
-          <Button
-            type="button"
-            size="icon"
-            title="Добавить контур"
-            aria-label="Добавить контур"
-            @click="openCreateDialog"
-          >
-            <Plus class="size-4" />
-          </Button>
+        <div class="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+          <div class="text-left sm:text-right">
+            <p class="text-sm font-medium leading-5">
+              {{ currentUser.username || currentUser.email }}
+            </p>
+            <p class="text-xs leading-5 text-muted-foreground">
+              {{ currentUser.role }} · {{ availableContoursLabel }}
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <Button
+              v-if="isAdmin"
+              type="button"
+              size="icon"
+              title="Добавить контур"
+              aria-label="Добавить контур"
+              @click="openCreateDialog"
+            >
+              <Plus class="size-4" />
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              title="Выйти"
+              aria-label="Выйти"
+              @click="logoutUser"
+            >
+              <LogOut class="size-4" />
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -190,7 +370,7 @@ onMounted(loadContours)
               <CardHeader>
                 <CardTitle class="min-w-0 break-words pr-2 leading-snug">{{ contour.name }}</CardTitle>
                 <CardDescription class="text-xs">#{{ contour.id }}</CardDescription>
-                <CardAction>
+                <CardAction v-if="isAdmin">
                   <Button
                     type="button"
                     variant="outline"

@@ -49,6 +49,28 @@ export function listContours() {
   return statements.allContours.all().map(toContour)
 }
 
+export function listContoursByIds(ids) {
+  const contourIds = [...new Set(ids)]
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0)
+
+  if (contourIds.length === 0) {
+    return []
+  }
+
+  const placeholders = contourIds.map(() => '?').join(', ')
+  const rows = db
+    .prepare(`
+      SELECT id, name, description, created_at, updated_at
+      FROM contours
+      WHERE id IN (${placeholders})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...contourIds)
+
+  return rows.map(toContour)
+}
+
 export function createContour({ name, description }) {
   const result = statements.createContour.run(name, description)
   return toContour(statements.getContour.get(result.lastInsertRowid))

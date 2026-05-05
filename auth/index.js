@@ -9,9 +9,13 @@ import {
   createSession,
   createUser,
   deleteSessionByToken,
+  ensureSeedUser,
   findUserByEmail,
+  findUserByLogin,
   findUserBySessionToken,
+  findUserByUsername,
   normalizeEmail,
+  normalizeUsername,
   publicUser,
 } from './db.js'
 import { hashPassword, verifyPassword } from './passwords.js'
@@ -22,6 +26,26 @@ const sessionTtlMs = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 24 * 
 const sessionMaxAgeSeconds = Math.floor(sessionTtlMs / 1000)
 
 app.use(express.json({ limit: '32kb' }))
+
+function seedDefaultAdmin() {
+  if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SEED_ADMIN_PASSWORD) {
+    return
+  }
+
+  const password = process.env.AUTH_SEED_ADMIN_PASSWORD ?? 'anichkay123'
+  const { hash, salt } = hashPassword(password)
+
+  ensureSeedUser({
+    username: 'anichkay',
+    email: 'anichkay@local.test',
+    passwordHash: hash,
+    passwordSalt: salt,
+    role: 'admin',
+    availableContours: ['all'],
+  })
+}
+
+seedDefaultAdmin()
 
 function sessionExpiresAt() {
   return new Date(Date.now() + sessionTtlMs).toISOString()
@@ -40,10 +64,14 @@ function issueSession(response, user) {
 }
 
 function getCredentials(request) {
+  const login = String(
+    request.body?.login ?? request.body?.email ?? request.body?.username ?? '',
+  ).trim()
+  const username = normalizeUsername(String(request.body?.username ?? ''))
   const email = normalizeEmail(String(request.body?.email ?? ''))
   const password = String(request.body?.password ?? '')
 
-  return { email, password }
+  return { login, username, email, password }
 }
 
 function validateCredentials({ email, password }) {
@@ -58,20 +86,35 @@ function validateCredentials({ email, password }) {
   return ''
 }
 
+function validateUsername(username) {
+  if (!username) {
+    return ''
+  }
+
+  if (!/^[a-z0-9_-]{3,32}$/.test(username)) {
+    return 'Username должен содержать 3-32 символа: a-z, 0-9, _ или -.'
+  }
+
+  return ''
+}
+
 app.get('/auth/health', (_request, response) => {
   response.json({ ok: true })
 })
 
 app.post('/auth/register', (request, response) => {
   const credentials = getCredentials(request)
-  const validationError = validateCredentials(credentials)
+  const validationError =
+    validateCredentials(credentials) || validateUsername(credentials.username)
 
   if (validationError) {
     response.status(400).json({ message: validationError })
     return
   }
 
-  const existingUser = findUserByEmail(credentials.email)
+  const existingUser =
+    findUserByEmail(credentials.email) ||
+    (credentials.username ? findUserByUsername(credentials.username) : null)
 
   if (existingUser) {
     response.status(409).json({ message: 'Пользователь уже существует.' })
@@ -80,6 +123,7 @@ app.post('/auth/register', (request, response) => {
 
   const { hash, salt } = hashPassword(credentials.password)
   const user = createUser({
+    username: credentials.username || null,
     email: credentials.email,
     passwordHash: hash,
     passwordSalt: salt,
@@ -91,10 +135,10 @@ app.post('/auth/register', (request, response) => {
 
 app.post('/auth/login', (request, response) => {
   const credentials = getCredentials(request)
-  const user = findUserByEmail(credentials.email)
+  const user = findUserByLogin(credentials.login)
 
   if (!user || !verifyPassword(credentials.password, user.passwordSalt, user.passwordHash)) {
-    response.status(401).json({ message: 'Неверный email или пароль.' })
+    response.status(401).json({ message: 'Неверный логин или пароль.' })
     return
   }
 
