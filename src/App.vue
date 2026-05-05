@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Plus, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -152,30 +152,11 @@ onMounted(loadContours)
           >
             <Plus class="size-4" />
           </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            class="flex-1 sm:flex-none"
-            :disabled="loading"
-            title="Обновить"
-            @click="loadContours"
-          >
-            <RefreshCw class="size-4" :class="{ 'animate-spin': loading }" />
-            Обновить
-          </Button>
         </div>
       </header>
 
       <div class="flex-1 py-6">
         <section class="min-w-0">
-          <div class="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 class="text-xl font-semibold leading-tight">Список</h2>
-              <p class="text-sm text-muted-foreground">Всего: {{ contours.length }}</p>
-            </div>
-          </div>
-
           <div
             v-if="error"
             class="mb-4 rounded-md border bg-background px-4 py-3 text-sm text-foreground"
