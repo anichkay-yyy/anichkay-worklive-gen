@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ArrowLeft, LogOut, Plus, Trash2, UserPlus } from 'lucide-vue-next'
+import { ArrowLeft, LogOut, Plus, Trash2, UserPlus, Users, Workflow } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import CashFlowsEditor from '@/components/cash-flows/CashFlowsEditor.vue'
 import {
   Card,
   CardAction,
@@ -36,6 +37,7 @@ const deletingId = ref(null)
 const selectedContour = ref(null)
 const members = ref([])
 const membersLoading = ref(false)
+const activeContourTab = ref('members')
 const createDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const inviting = ref(false)
@@ -332,6 +334,7 @@ async function logoutUser() {
     contours.value = []
     selectedContour.value = null
     members.value = []
+    activeContourTab.value = 'members'
     error.value = ''
     loading.value = false
     detailLoading.value = false
@@ -341,6 +344,7 @@ async function logoutUser() {
 
 function openContourPage(contour) {
   selectedContour.value = contour
+  activeContourTab.value = 'members'
   pushPath(`/contours/${contour.id}`)
   void loadContour(contour.id)
 }
@@ -348,6 +352,7 @@ function openContourPage(contour) {
 function goToContours() {
   selectedContour.value = null
   members.value = []
+  activeContourTab.value = 'members'
   error.value = ''
   pushPath('/')
   void loadContours()
@@ -596,12 +601,28 @@ onUnmounted(() => {
           <div v-else-if="isContourPage" class="grid gap-6 lg:grid-cols-[220px_1fr]">
             <aside class="border-b pb-4 lg:border-b-0 lg:border-r lg:pr-4">
               <div class="flex gap-2 lg:flex-col">
-                <Button type="button" variant="secondary" class="justify-start">
+                <Button
+                  type="button"
+                  :variant="activeContourTab === 'members' ? 'secondary' : 'ghost'"
+                  class="justify-start"
+                  @click="activeContourTab = 'members'"
+                >
+                  <Users class="size-4" />
                   Участники
                 </Button>
 
                 <Button
-                  v-if="isAdmin"
+                  type="button"
+                  :variant="activeContourTab === 'cash-flows' ? 'secondary' : 'ghost'"
+                  class="justify-start"
+                  @click="activeContourTab = 'cash-flows'"
+                >
+                  <Workflow class="size-4" />
+                  Cash-flows
+                </Button>
+
+                <Button
+                  v-if="isAdmin && activeContourTab === 'members'"
                   type="button"
                   variant="outline"
                   class="justify-start"
@@ -613,7 +634,7 @@ onUnmounted(() => {
               </div>
             </aside>
 
-            <section class="min-w-0 space-y-4">
+            <section v-if="activeContourTab === 'members'" class="min-w-0 space-y-4">
               <div class="grid gap-3 md:grid-cols-[1fr_180px_180px]">
                 <Input
                   v-model="memberFilters.query"
@@ -692,6 +713,12 @@ onUnmounted(() => {
                 </div>
               </div>
             </section>
+
+            <CashFlowsEditor
+              v-else-if="selectedContour"
+              :contour-id="selectedContour.id"
+              :can-edit="isAdmin"
+            />
           </div>
 
           <div v-else-if="loading" class="grid gap-3 md:grid-cols-2">

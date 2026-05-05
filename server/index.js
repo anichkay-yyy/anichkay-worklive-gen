@@ -3,12 +3,22 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  createCashFlow,
+  createCashFlowNode,
   createContour,
+  deleteCashFlow,
+  deleteCashFlowNode,
   deleteContour,
+  getCashFlowNode,
   getContour,
+  listCashFlowNodes,
+  listCashFlows,
   listContourMembers,
   listContours,
   listContoursByIds,
+  updateCashFlow,
+  updateCashFlowNode,
+  updateCashFlowNodePosition,
   upsertContourMember,
 } from './db.js'
 
@@ -123,6 +133,57 @@ function validateMemberAccess(access) {
   return ['full', 'edit', 'view'].includes(access)
 }
 
+function parseContourId(rawId, response) {
+  const id = Number(rawId)
+
+  if (!Number.isInteger(id) || id <= 0) {
+    response.status(400).json({ message: 'Некорректный id контура.' })
+    return null
+  }
+
+  return id
+}
+
+function ensureContourAccess(request, response, id) {
+  if (!canAccessContour(request.user, id)) {
+    response.status(403).json({ message: 'Нет доступа к контуру.' })
+    return null
+  }
+
+  const contour = getContour(id)
+
+  if (!contour) {
+    response.status(404).json({ message: 'Контур не найден.' })
+    return null
+  }
+
+  return contour
+}
+
+function validateCashFlowNodeType(type) {
+  return ['source', 'consumer', 'middleware'].includes(type)
+}
+
+function normalizePercent(value) {
+  const percent = Number(value)
+
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    return null
+  }
+
+  return Math.round(percent)
+}
+
+function normalizePosition(value) {
+  const position = Number(value)
+
+  if (!Number.isFinite(position)) {
+    return null
+  }
+
+  return position
+}
+
 app.get('/api/contours', withAuth((request, response) => {
   const contours = canAccessAllContours(request.user)
     ? listContours()
@@ -180,6 +241,252 @@ app.get('/api/contours/:id/members', withAuth((request, response) => {
   }
 
   response.json({ members })
+}))
+
+app.get('/api/contours/:id/cash-flows', withAuth((request, response) => {
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  response.json({
+    nodes: listCashFlowNodes(id),
+    flows: listCashFlows(id),
+  })
+}))
+
+app.post('/api/contours/:id/cash-flows/nodes', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  const name = String(request.body?.name ?? '').trim()
+  const type = String(request.body?.type ?? 'source')
+  const positionX = normalizePosition(request.body?.positionX ?? 0)
+  const positionY = normalizePosition(request.body?.positionY ?? 0)
+
+  if (!name) {
+    response.status(400).json({ message: 'Название узла обязательно.' })
+    return
+  }
+
+  if (!validateCashFlowNodeType(type)) {
+    response.status(400).json({ message: 'Некорректный тип узла.' })
+    return
+  }
+
+  if (positionX === null || positionY === null) {
+    response.status(400).json({ message: 'Некорректная позиция узла.' })
+    return
+  }
+
+  const node = createCashFlowNode({
+    contourId: id,
+    name,
+    type,
+    positionX,
+    positionY,
+  })
+
+  response.status(201).json({ node })
+}))
+
+app.patch('/api/contours/:id/cash-flows/nodes/:nodeId', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  const name = String(request.body?.name ?? '').trim()
+  const type = String(request.body?.type ?? 'source')
+
+  if (!name) {
+    response.status(400).json({ message: 'Название узла обязательно.' })
+    return
+  }
+
+  if (!validateCashFlowNodeType(type)) {
+    response.status(400).json({ message: 'Некорректный тип узла.' })
+    return
+  }
+
+  const node = updateCashFlowNode({
+    contourId: id,
+    nodeId: request.params.nodeId,
+    name,
+    type,
+  })
+
+  if (!node) {
+    response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.json({ node })
+}))
+
+app.patch('/api/contours/:id/cash-flows/nodes/:nodeId/position', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  const positionX = normalizePosition(request.body?.positionX)
+  const positionY = normalizePosition(request.body?.positionY)
+
+  if (positionX === null || positionY === null) {
+    response.status(400).json({ message: 'Некорректная позиция узла.' })
+    return
+  }
+
+  const node = updateCashFlowNodePosition({
+    contourId: id,
+    nodeId: request.params.nodeId,
+    positionX,
+    positionY,
+  })
+
+  if (!node) {
+    response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.json({ node })
+}))
+
+app.delete('/api/contours/:id/cash-flows/nodes/:nodeId', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  if (!deleteCashFlowNode(id, request.params.nodeId)) {
+    response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.status(204).end()
+}))
+
+app.post('/api/contours/:id/cash-flows/flows', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  const sourceNodeId = String(request.body?.sourceNodeId ?? '').trim()
+  const targetNodeId = String(request.body?.targetNodeId ?? '').trim()
+  const label = String(request.body?.label ?? '').trim()
+  const constancy = normalizePercent(request.body?.constancy ?? 50)
+  const share = normalizePercent(request.body?.share ?? 100)
+
+  if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {
+    response.status(400).json({ message: 'Некорректная связь.' })
+    return
+  }
+
+  if (constancy === null || share === null) {
+    response.status(400).json({ message: 'Параметры связи должны быть от 0 до 100.' })
+    return
+  }
+
+  if (!getCashFlowNode(id, sourceNodeId) || !getCashFlowNode(id, targetNodeId)) {
+    response.status(400).json({ message: 'Узлы связи не найдены в этом контуре.' })
+    return
+  }
+
+  const flow = createCashFlow({
+    contourId: id,
+    sourceNodeId,
+    targetNodeId,
+    label,
+    constancy,
+    share,
+  })
+
+  response.status(201).json({ flow })
+}))
+
+app.patch('/api/contours/:id/cash-flows/flows/:flowId', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  const label = String(request.body?.label ?? '').trim()
+  const constancy = normalizePercent(request.body?.constancy ?? 50)
+  const share = normalizePercent(request.body?.share ?? 100)
+
+  if (constancy === null || share === null) {
+    response.status(400).json({ message: 'Параметры связи должны быть от 0 до 100.' })
+    return
+  }
+
+  const flow = updateCashFlow({
+    contourId: id,
+    flowId: request.params.flowId,
+    label,
+    constancy,
+    share,
+  })
+
+  if (!flow) {
+    response.status(404).json({ message: 'Связь не найдена.' })
+    return
+  }
+
+  response.json({ flow })
+}))
+
+app.delete('/api/contours/:id/cash-flows/flows/:flowId', withAuth((request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = parseContourId(request.params.id, response)
+
+  if (id === null || !ensureContourAccess(request, response, id)) {
+    return
+  }
+
+  if (!deleteCashFlow(id, request.params.flowId)) {
+    response.status(404).json({ message: 'Связь не найдена.' })
+    return
+  }
+
+  response.status(204).end()
 }))
 
 app.post('/api/contours/:id/invites', withAuth(async (request, response) => {
