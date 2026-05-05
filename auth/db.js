@@ -18,6 +18,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    status TEXT NOT NULL DEFAULT 'active',
     available_contours TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -44,6 +45,7 @@ function ensureColumn(tableName, columnName, definition) {
 
 ensureColumn('users', 'username', 'TEXT')
 ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'user'")
+ensureColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'")
 ensureColumn('users', 'available_contours', "TEXT NOT NULL DEFAULT '[]'")
 
 db.exec(`
@@ -74,6 +76,7 @@ const toUser = (row) => ({
   username: row.username,
   email: row.email,
   role: row.role,
+  status: row.status,
   availableContours: parseAvailableContours(row.available_contours),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -92,6 +95,7 @@ const userFields = `
   users.password_hash AS password_hash,
   users.password_salt AS password_salt,
   users.role AS role,
+  users.status AS status,
   users.available_contours AS available_contours,
   users.created_at AS created_at,
   users.updated_at AS updated_at
@@ -99,8 +103,8 @@ const userFields = `
 
 const statements = {
   createUser: db.prepare(`
-    INSERT INTO users (username, email, password_hash, password_salt, role, available_contours)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO users (username, email, password_hash, password_salt, role, status, available_contours)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
   getUserById: db.prepare(`
     SELECT ${userFields}
@@ -130,8 +134,14 @@ const statements = {
       password_hash = ?,
       password_salt = ?,
       role = ?,
+      status = ?,
       available_contours = ?,
       updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `),
+  updateUserAccess: db.prepare(`
+    UPDATE users
+    SET available_contours = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `),
   createSession: db.prepare(`
@@ -171,6 +181,7 @@ export function publicUser(user) {
     username: user.username,
     email: user.email,
     role: user.role,
+    status: user.status,
     availableContours: user.availableContours,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -183,6 +194,7 @@ export function createUser({
   passwordHash,
   passwordSalt,
   role = 'user',
+  status = 'active',
   availableContours = [],
 }) {
   const result = statements.createUser.run(
@@ -191,6 +203,7 @@ export function createUser({
     passwordHash,
     passwordSalt,
     role,
+    status,
     serializeAvailableContours(availableContours),
   )
 
@@ -219,6 +232,7 @@ export function ensureSeedUser({
   passwordHash,
   passwordSalt,
   role,
+  status = 'active',
   availableContours,
 }) {
   const normalizedUsername = normalizeUsername(username)
@@ -233,6 +247,7 @@ export function ensureSeedUser({
       passwordHash,
       passwordSalt,
       role,
+      status,
       availableContours,
     })
   }
@@ -243,11 +258,58 @@ export function ensureSeedUser({
     passwordHash,
     passwordSalt,
     role,
+    status,
     serializeAvailableContours(availableContours),
     existingUser.id,
   )
 
   return toAuthUser(statements.getUserById.get(existingUser.id))
+}
+
+function addContourAccess(user, contourId) {
+  const contourAccess = String(contourId)
+
+  if (user.availableContours.includes('all') || user.availableContours.includes(contourAccess)) {
+    return user
+  }
+
+  const nextAvailableContours = [...user.availableContours, contourAccess]
+  statements.updateUserAccess.run(serializeAvailableContours(nextAvailableContours), user.id)
+
+  return toAuthUser(statements.getUserById.get(user.id))
+}
+
+export function createOrInviteUser({
+  username,
+  email,
+  passwordHash,
+  passwordSalt,
+  contourId,
+}) {
+  const normalizedUsername = normalizeUsername(username)
+  const normalizedEmail = normalizeEmail(email)
+  const existingUser =
+    findUserByUsername(normalizedUsername) ?? findUserByEmail(normalizedEmail)
+
+  if (existingUser) {
+    return {
+      user: addContourAccess(existingUser, contourId),
+      created: false,
+    }
+  }
+
+  return {
+    user: createUser({
+      username: normalizedUsername,
+      email: normalizedEmail,
+      passwordHash,
+      passwordSalt,
+      role: 'user',
+      status: 'invited',
+      availableContours: [String(contourId)],
+    }),
+    created: true,
+  }
 }
 
 export function hashSessionToken(token) {

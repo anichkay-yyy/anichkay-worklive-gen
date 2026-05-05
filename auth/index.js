@@ -8,6 +8,7 @@ import {
 import {
   createSession,
   createUser,
+  createOrInviteUser,
   deleteSessionByToken,
   ensureSeedUser,
   findUserByEmail,
@@ -98,6 +99,43 @@ function validateUsername(username) {
   return ''
 }
 
+function currentUser(request) {
+  return findUserBySessionToken(getSessionToken(request))
+}
+
+function requireAdmin(request, response) {
+  const user = currentUser(request)
+
+  if (!user) {
+    response.status(401).json({ message: 'Требуется авторизация.' })
+    return null
+  }
+
+  if (user.role !== 'admin') {
+    response.status(403).json({ message: 'Недостаточно прав.' })
+    return null
+  }
+
+  return user
+}
+
+function getInvitePayload(request) {
+  const username = normalizeUsername(String(request.body?.username ?? ''))
+  const email = normalizeEmail(String(request.body?.email ?? ''))
+  const contourId = Number(request.body?.contourId)
+
+  return { username, email, contourId }
+}
+
+function validateInvitePayload({ username, email, contourId }) {
+  return (
+    validateUsername(username) ||
+    (!username ? 'Username обязателен.' : '') ||
+    (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 'Некорректный email.' : '') ||
+    (!Number.isInteger(contourId) || contourId <= 0 ? 'Некорректный id контура.' : '')
+  )
+}
+
 app.get('/auth/health', (_request, response) => {
   response.json({ ok: true })
 })
@@ -142,12 +180,48 @@ app.post('/auth/login', (request, response) => {
     return
   }
 
+  if (user.status !== 'active') {
+    response.status(403).json({ message: 'Пользователь ожидает приглашение.' })
+    return
+  }
+
   issueSession(response, user)
   response.json({ user: publicUser(user) })
 })
 
+app.post('/auth/admin/users/invite', (request, response) => {
+  const admin = requireAdmin(request, response)
+
+  if (!admin) {
+    return
+  }
+
+  const invite = getInvitePayload(request)
+  const validationError = validateInvitePayload(invite)
+
+  if (validationError) {
+    response.status(400).json({ message: validationError })
+    return
+  }
+
+  const temporaryPassword = crypto.randomBytes(24).toString('base64url')
+  const { hash, salt } = hashPassword(temporaryPassword)
+  const result = createOrInviteUser({
+    username: invite.username,
+    email: invite.email,
+    passwordHash: hash,
+    passwordSalt: salt,
+    contourId: invite.contourId,
+  })
+
+  response.status(result.created ? 201 : 200).json({
+    user: publicUser(result.user),
+    created: result.created,
+  })
+})
+
 app.get('/auth/me', (request, response) => {
-  const user = findUserBySessionToken(getSessionToken(request))
+  const user = currentUser(request)
 
   if (!user) {
     response.status(401).json({ user: null })

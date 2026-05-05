@@ -38,6 +38,7 @@ Endpoints:
 - `POST /auth/login` with `{ "login": "...", "password": "..." }`
 - `GET /auth/me`
 - `POST /auth/logout`
+- `POST /auth/admin/users/invite`
 
 Sessions use an `HttpOnly` cookie named `worklive_session`. The raw session token is only sent to the browser as a cookie; SQLite stores a SHA-256 hash of the token.
 
@@ -49,3 +50,14 @@ Development seed user:
 - Available contours: `all`
 
 Override the seed password with `AUTH_SEED_ADMIN_PASSWORD`. In production, the seed user is only created when `AUTH_SEED_ADMIN_PASSWORD` is set.
+
+## Contour Members
+
+Contour member data is stored in `data/app.sqlite`.
+
+Endpoints:
+
+- `GET /api/contours/:id/members`
+- `POST /api/contours/:id/invites`
+
+Member records have contour-local `role`, `access`, and `status` fields.

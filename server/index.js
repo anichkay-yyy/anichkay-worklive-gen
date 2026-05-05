@@ -2,7 +2,15 @@ import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createContour, deleteContour, getContour, listContours, listContoursByIds } from './db.js'
+import {
+  createContour,
+  deleteContour,
+  getContour,
+  listContourMembers,
+  listContours,
+  listContoursByIds,
+  upsertContourMember,
+} from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -70,6 +78,49 @@ function requireAdmin(request, response) {
   return false
 }
 
+function normalizeMemberFilters(query) {
+  return {
+    query: String(query.query ?? '').trim(),
+    role: String(query.role ?? 'all'),
+    access: String(query.access ?? 'all'),
+  }
+}
+
+function currentUserMember(user, contourId) {
+  return {
+    contourId,
+    userId: user.id,
+    username: user.username || user.email,
+    email: user.email,
+    role: 'owner',
+    access: 'full',
+    status: 'active',
+    invitedAt: null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  }
+}
+
+function memberMatchesFilters(member, filters) {
+  const query = filters.query.toLowerCase()
+  const matchesQuery =
+    !query ||
+    member.username.toLowerCase().includes(query) ||
+    member.email.toLowerCase().includes(query)
+  const matchesRole = filters.role === 'all' || member.role === filters.role
+  const matchesAccess = filters.access === 'all' || member.access === filters.access
+
+  return matchesQuery && matchesRole && matchesAccess
+}
+
+function validateMemberRole(role) {
+  return ['admin', 'editor', 'viewer'].includes(role)
+}
+
+function validateMemberAccess(access) {
+  return ['full', 'edit', 'view'].includes(access)
+}
+
 app.get('/api/contours', withAuth((request, response) => {
   const contours = canAccessAllContours(request.user)
     ? listContours()
@@ -99,6 +150,102 @@ app.get('/api/contours/:id', withAuth((request, response) => {
   }
 
   response.json({ contour })
+}))
+
+app.get('/api/contours/:id/members', withAuth((request, response) => {
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id) || id <= 0) {
+    response.status(400).json({ message: 'Некорректный id контура.' })
+    return
+  }
+
+  if (!canAccessContour(request.user, id)) {
+    response.status(403).json({ message: 'Нет доступа к контуру.' })
+    return
+  }
+
+  const filters = normalizeMemberFilters(request.query)
+  const members = listContourMembers(id, filters)
+  const hasCurrentUser = members.some((member) => member.userId === request.user.id)
+
+  if (!hasCurrentUser && canAccessAllContours(request.user)) {
+    const ownerMember = currentUserMember(request.user, id)
+
+    if (memberMatchesFilters(ownerMember, filters)) {
+      members.unshift(ownerMember)
+    }
+  }
+
+  response.json({ members })
+}))
+
+app.post('/api/contours/:id/invites', withAuth(async (request, response) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id) || id <= 0) {
+    response.status(400).json({ message: 'Некорректный id контура.' })
+    return
+  }
+
+  if (!canAccessContour(request.user, id)) {
+    response.status(403).json({ message: 'Нет доступа к контуру.' })
+    return
+  }
+
+  const username = String(request.body?.username ?? '').trim()
+  const email = String(request.body?.email ?? '').trim()
+  const role = String(request.body?.role ?? 'viewer')
+  const access = String(request.body?.access ?? 'view')
+
+  if (!validateMemberRole(role)) {
+    response.status(400).json({ message: 'Некорректная роль участника.' })
+    return
+  }
+
+  if (!validateMemberAccess(access)) {
+    response.status(400).json({ message: 'Некорректный доступ участника.' })
+    return
+  }
+
+  const authResponse = await fetch(`${authServiceUrl}/auth/admin/users/invite`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      cookie: request.headers.cookie ?? '',
+    },
+    body: JSON.stringify({
+      username,
+      email,
+      contourId: id,
+    }),
+  })
+  const authPayload = await authResponse.json().catch(() => ({}))
+
+  if (!authResponse.ok) {
+    response.status(authResponse.status).json({
+      message: authPayload.message || 'Не удалось создать приглашение.',
+    })
+    return
+  }
+
+  const member = upsertContourMember({
+    contourId: id,
+    user: authPayload.user,
+    role,
+    access,
+    status: 'invited',
+  })
+
+  response.status(authResponse.status === 201 ? 201 : 200).json({
+    member,
+    user: authPayload.user,
+    created: authPayload.created,
+  })
 }))
 
 app.post('/api/contours', withAuth((request, response) => {
