@@ -1,6 +1,6 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { RefreshCw, Trash2 } from 'lucide-vue-next'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -10,12 +10,31 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 
 const contours = ref([])
 const loading = ref(true)
+const saving = ref(false)
 const deletingId = ref(null)
+const createDialogOpen = ref(false)
 const error = ref('')
+const form = reactive({
+  name: '',
+  description: '',
+})
+
+const canCreate = computed(() => form.name.trim().length > 0 && !saving.value)
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -46,6 +65,13 @@ async function requestJson(url, options = {}) {
   return response.json()
 }
 
+function openCreateDialog() {
+  form.name = ''
+  form.description = ''
+  error.value = ''
+  createDialogOpen.value = true
+}
+
 async function loadContours() {
   loading.value = true
   error.value = ''
@@ -57,6 +83,34 @@ async function loadContours() {
     error.value = requestError.message
   } finally {
     loading.value = false
+  }
+}
+
+async function createNewContour() {
+  if (!canCreate.value) {
+    return
+  }
+
+  saving.value = true
+  error.value = ''
+
+  try {
+    const payload = await requestJson('/api/contours', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: form.name,
+        description: form.description,
+      }),
+    })
+
+    contours.value = [payload.contour, ...contours.value]
+    createDialogOpen.value = false
+    form.name = ''
+    form.description = ''
+  } catch (requestError) {
+    error.value = requestError.message
+  } finally {
+    saving.value = false
   }
 }
 
@@ -88,17 +142,29 @@ onMounted(loadContours)
           </p>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          class="w-full sm:w-auto"
-          :disabled="loading"
-          title="Обновить"
-          @click="loadContours"
-        >
-          <RefreshCw class="size-4" :class="{ 'animate-spin': loading }" />
-          Обновить
-        </Button>
+        <div class="flex w-full gap-2 sm:w-auto">
+          <Button
+            type="button"
+            size="icon"
+            title="Добавить контур"
+            aria-label="Добавить контур"
+            @click="openCreateDialog"
+          >
+            <Plus class="size-4" />
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            class="flex-1 sm:flex-none"
+            :disabled="loading"
+            title="Обновить"
+            @click="loadContours"
+          >
+            <RefreshCw class="size-4" :class="{ 'animate-spin': loading }" />
+            Обновить
+          </Button>
+        </div>
       </header>
 
       <div class="flex-1 py-6">
@@ -168,6 +234,53 @@ onMounted(loadContours)
           </div>
         </section>
       </div>
+
+      <Dialog v-model:open="createDialogOpen">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Новый контур</DialogTitle>
+            <DialogDescription>Название и описание</DialogDescription>
+          </DialogHeader>
+
+          <form class="space-y-5" @submit.prevent="createNewContour">
+            <div class="space-y-2">
+              <Label for="contour-name">Название</Label>
+              <Input
+                id="contour-name"
+                v-model="form.name"
+                maxlength="120"
+                placeholder="Например: Продажи"
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <Label for="contour-description">Описание</Label>
+              <Textarea
+                id="contour-description"
+                v-model="form.description"
+                maxlength="800"
+                placeholder="Короткое описание контура"
+                class="min-h-28 resize-none"
+              />
+            </div>
+
+            <div
+              v-if="error"
+              class="rounded-md border bg-background px-3 py-2 text-sm text-foreground"
+              role="alert"
+            >
+              {{ error }}
+            </div>
+
+            <DialogFooter>
+              <Button type="submit" class="w-full sm:w-auto" :disabled="!canCreate">
+                Создать
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   </main>
 </template>
