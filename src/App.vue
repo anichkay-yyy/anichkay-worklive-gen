@@ -250,7 +250,6 @@ onMounted(loadAuth)
       <Card class="w-full">
         <CardHeader>
           <CardTitle>Вход</CardTitle>
-          <CardDescription>Авторизация через cookie session</CardDescription>
         </CardHeader>
         <CardContent>
           <form class="space-y-5" @submit.prevent="submitLogin">
