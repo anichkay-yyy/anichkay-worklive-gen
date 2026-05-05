@@ -187,11 +187,9 @@ onMounted(loadContours)
 
           <div v-else class="grid gap-3 md:grid-cols-2">
             <Card v-for="contour in contours" :key="contour.id">
-              <CardHeader class="gap-3">
-                <div class="min-w-0">
-                  <CardTitle class="truncate">{{ contour.name }}</CardTitle>
-                  <CardDescription>#{{ contour.id }}</CardDescription>
-                </div>
+              <CardHeader>
+                <CardTitle class="min-w-0 break-words pr-2 leading-snug">{{ contour.name }}</CardTitle>
+                <CardDescription class="text-xs">#{{ contour.id }}</CardDescription>
                 <CardAction>
                   <Button
                     type="button"
