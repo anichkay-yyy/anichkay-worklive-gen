@@ -87,13 +87,15 @@ function normalizeMemberFilters(query) {
 }
 
 function currentUserMember(user, contourId) {
+  const role = user.role === 'admin' ? 'admin' : 'viewer'
+
   return {
     contourId,
     userId: user.id,
     username: user.username || user.email,
     email: user.email,
-    role: 'owner',
-    access: 'full',
+    role,
+    access: role === 'admin' ? 'full' : 'view',
     status: 'active',
     invitedAt: null,
     createdAt: user.createdAt,
@@ -169,7 +171,7 @@ app.get('/api/contours/:id/members', withAuth((request, response) => {
   const members = listContourMembers(id, filters)
   const hasCurrentUser = members.some((member) => member.userId === request.user.id)
 
-  if (!hasCurrentUser && canAccessAllContours(request.user)) {
+  if (!hasCurrentUser && canAccessContour(request.user, id)) {
     const ownerMember = currentUserMember(request.user, id)
 
     if (memberMatchesFilters(ownerMember, filters)) {

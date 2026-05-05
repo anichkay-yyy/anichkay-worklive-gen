@@ -109,7 +109,6 @@ const availableContoursLabel = computed(() => {
 })
 
 const roleLabels = {
-  owner: 'Владелец',
   admin: 'Админ',
   editor: 'Редактор',
   viewer: 'Наблюдатель',
@@ -639,7 +638,6 @@ onUnmounted(() => {
                   @change="loadMembers()"
                 >
                   <option value="all">Все роли</option>
-                  <option value="owner">Владелец</option>
                   <option value="admin">Админ</option>
                   <option value="editor">Редактор</option>
                   <option value="viewer">Наблюдатель</option>
