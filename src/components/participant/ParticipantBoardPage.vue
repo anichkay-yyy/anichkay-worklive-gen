@@ -151,7 +151,7 @@ watch(() => [props.flowId, props.role], loadContour, { immediate: true })
       </div>
 
       <HunterBoard v-if="role === 'hunter'" :flow-id="flowId" />
-      <RuntimeFlowCanvas v-else />
+      <RuntimeFlowCanvas v-else :flow-id="flowId" />
     </template>
   </section>
 </template>

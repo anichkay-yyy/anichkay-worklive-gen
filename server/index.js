@@ -7,10 +7,12 @@ import {
   createCashFlowNode,
   createContour,
   createHunterSource,
+  createRuntimeFlowNode,
   deleteCashFlow,
   deleteCashFlowNode,
   deleteContour,
   deleteHunterSource,
+  deleteRuntimeFlowNodeByHunterSource,
   getBusinessFlowBoardContour,
   getCashFlow,
   getCashFlowNode,
@@ -24,10 +26,12 @@ import {
   listContoursByIds,
   listHunterSourcesForUser,
   listParticipantContoursForUser,
+  listRuntimeFlowNodes,
   updateCashFlow,
   updateCashFlowNode,
   updateCashFlowNodePosition,
   updateHunterSource,
+  updateRuntimeFlowNodeByHunterSource,
   upsertContourMember,
 } from './db.js'
 
@@ -320,6 +324,42 @@ function hasHunterSourcePayloadContent(payload) {
   ].some(Boolean)
 }
 
+function runtimeNodeNameForHunterSource(source) {
+  return source.companyName || source.contactName || 'Источник'
+}
+
+function runtimeNodePosition(flowId) {
+  const nodeCount = listRuntimeFlowNodes(flowId).length
+
+  return {
+    positionX: 80 + (nodeCount % 4) * 220,
+    positionY: 80 + Math.floor(nodeCount / 4) * 140,
+  }
+}
+
+function createRuntimeSourceNode(source) {
+  const hasRuntimeNode = listRuntimeFlowNodes(source.flowId).some((node) => {
+    return node.hunterSourceId === source.id
+  })
+
+  if (hasRuntimeNode) {
+    return updateRuntimeFlowNodeByHunterSource({
+      hunterSourceId: source.id,
+      name: runtimeNodeNameForHunterSource(source),
+    })
+  }
+
+  const position = runtimeNodePosition(source.flowId)
+
+  return createRuntimeFlowNode({
+    flowId: source.flowId,
+    hunterSourceId: source.id,
+    name: runtimeNodeNameForHunterSource(source),
+    type: 'source',
+    ...position,
+  })
+}
+
 function ensureParticipantRole(request, response, flowId, role) {
   const participantContour = listParticipantContoursForUser(request.user).find((contour) => {
     return contour.flowId === flowId && contour.role === role
@@ -333,6 +373,34 @@ function ensureParticipantRole(request, response, flowId, role) {
   return participantContour
 }
 
+function ensureRuntimeFlowAccess(request, response, flowId) {
+  const parentContour = getCashFlowBoardContour()
+  const parentFlow = getCashFlow(parentContour.id, flowId)
+
+  if (!parentFlow) {
+    response.status(404).json({ message: 'Runtime flow не найден.' })
+    return null
+  }
+
+  if (
+    request.user.role === 'admin' &&
+    canAccessContour(request.user, parentContour.id)
+  ) {
+    return parentFlow
+  }
+
+  const participantContour = listParticipantContoursForUser(request.user).find((contour) => {
+    return contour.flowId === flowId
+  })
+
+  if (!participantContour) {
+    response.status(403).json({ message: 'Нет доступа к runtime flow.' })
+    return null
+  }
+
+  return parentFlow
+}
+
 app.get('/api/contours', withAuth((request, response) => {
   const contours = canAccessAllContours(request.user)
     ? listContours()
@@ -344,6 +412,19 @@ app.get('/api/contours', withAuth((request, response) => {
 app.get('/api/my-contours', withAuth((request, response) => {
   response.json({
     contours: listParticipantContoursForUser(request.user),
+  })
+}))
+
+app.get('/api/runtime-flows/:flowId', withAuth((request, response) => {
+  const flowId = String(request.params.flowId ?? '').trim()
+
+  if (!flowId || !ensureRuntimeFlowAccess(request, response, flowId)) {
+    return
+  }
+
+  response.json({
+    nodes: listRuntimeFlowNodes(flowId),
+    flows: [],
   })
 }))
 
@@ -385,8 +466,9 @@ app.post('/api/hunter/sources', withAuth((request, response) => {
     userId: request.user.id,
     ...hunterSource,
   })
+  const runtimeNode = createRuntimeSourceNode(source)
 
-  response.status(201).json({ source })
+  response.status(201).json({ source, runtimeNode })
 }))
 
 app.patch('/api/hunter/sources/:sourceId', withAuth((request, response) => {
@@ -413,8 +495,12 @@ app.patch('/api/hunter/sources/:sourceId', withAuth((request, response) => {
     sourceId: request.params.sourceId,
     ...hunterSource,
   })
+  const runtimeNode = updateRuntimeFlowNodeByHunterSource({
+    hunterSourceId: source.id,
+    name: runtimeNodeNameForHunterSource(source),
+  }) ?? createRuntimeSourceNode(source)
 
-  response.json({ source })
+  response.json({ source, runtimeNode })
 }))
 
 app.delete('/api/hunter/sources/:sourceId', withAuth((request, response) => {
@@ -429,6 +515,7 @@ app.delete('/api/hunter/sources/:sourceId', withAuth((request, response) => {
     return
   }
 
+  deleteRuntimeFlowNodeByHunterSource(request.params.sourceId)
   deleteHunterSource(request.user.id, request.params.sourceId)
   response.status(204).end()
 }))

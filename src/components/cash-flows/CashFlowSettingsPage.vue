@@ -177,7 +177,7 @@ watch(() => props.flowId, loadFlow, { immediate: true })
 
       <div class="space-y-3">
         <h2 class="text-lg font-semibold leading-7">Runtime flow</h2>
-        <RuntimeFlowCanvas />
+        <RuntimeFlowCanvas :flow-id="flowId" />
       </div>
     </template>
   </section>

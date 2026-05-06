@@ -104,6 +104,27 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS hunter_sources_flow_id_index
     ON hunter_sources (flow_id);
+
+  CREATE TABLE IF NOT EXISTS runtime_flow_nodes (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL,
+    hunter_source_id TEXT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'source',
+    position_x REAL NOT NULL DEFAULT 0,
+    position_y REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (flow_id) REFERENCES cash_flow_edges(id) ON DELETE CASCADE,
+    FOREIGN KEY (hunter_source_id) REFERENCES hunter_sources(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS runtime_flow_nodes_flow_id_index
+    ON runtime_flow_nodes (flow_id);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS runtime_flow_nodes_hunter_source_id_unique
+    ON runtime_flow_nodes (hunter_source_id)
+    WHERE hunter_source_id IS NOT NULL;
 `)
 
 function ensureColumn(tableName, columnName, definition) {
@@ -224,6 +245,18 @@ const toHunterSource = (row) => ({
   flowLabel: row.flow_label ?? null,
   sourceName: row.source_name ?? null,
   targetName: row.target_name ?? null,
+})
+
+const toRuntimeFlowNode = (row) => ({
+  id: row.id,
+  flowId: row.flow_id,
+  hunterSourceId: row.hunter_source_id,
+  name: row.name,
+  type: row.type,
+  positionX: row.position_x,
+  positionY: row.position_y,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
 })
 
 const statements = {
@@ -649,6 +682,58 @@ const statements = {
     DELETE FROM hunter_sources
     WHERE user_id = ? AND id = ?
   `),
+  listRuntimeFlowNodes: db.prepare(`
+    SELECT
+      id,
+      flow_id,
+      hunter_source_id,
+      name,
+      type,
+      position_x,
+      position_y,
+      created_at,
+      updated_at
+    FROM runtime_flow_nodes
+    WHERE flow_id = ?
+    ORDER BY created_at ASC, id ASC
+  `),
+  getRuntimeFlowNodeByHunterSource: db.prepare(`
+    SELECT
+      id,
+      flow_id,
+      hunter_source_id,
+      name,
+      type,
+      position_x,
+      position_y,
+      created_at,
+      updated_at
+    FROM runtime_flow_nodes
+    WHERE hunter_source_id = ?
+  `),
+  createRuntimeFlowNode: db.prepare(`
+    INSERT INTO runtime_flow_nodes (
+      id,
+      flow_id,
+      hunter_source_id,
+      name,
+      type,
+      position_x,
+      position_y
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
+  updateRuntimeFlowNodeByHunterSource: db.prepare(`
+    UPDATE runtime_flow_nodes
+    SET
+      name = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE hunter_source_id = ?
+  `),
+  deleteRuntimeFlowNodeByHunterSource: db.prepare(`
+    DELETE FROM runtime_flow_nodes
+    WHERE hunter_source_id = ?
+  `),
 }
 
 export function listContours() {
@@ -1002,4 +1087,53 @@ export function updateHunterSource({
 
 export function deleteHunterSource(userId, sourceId) {
   return statements.deleteHunterSource.run(userId, sourceId).changes > 0
+}
+
+export function listRuntimeFlowNodes(flowId) {
+  return statements.listRuntimeFlowNodes.all(flowId).map(toRuntimeFlowNode)
+}
+
+export function getRuntimeFlowNodeByHunterSource(hunterSourceId) {
+  const node = statements.getRuntimeFlowNodeByHunterSource.get(hunterSourceId)
+  return node ? toRuntimeFlowNode(node) : null
+}
+
+export function createRuntimeFlowNode({
+  flowId,
+  hunterSourceId = null,
+  name,
+  type,
+  positionX,
+  positionY,
+}) {
+  const id = randomUUID()
+  statements.createRuntimeFlowNode.run(
+    id,
+    flowId,
+    hunterSourceId,
+    name,
+    type,
+    positionX,
+    positionY,
+  )
+
+  const node = hunterSourceId
+    ? statements.getRuntimeFlowNodeByHunterSource.get(hunterSourceId)
+    : null
+
+  return node ? toRuntimeFlowNode(node) : null
+}
+
+export function updateRuntimeFlowNodeByHunterSource({ hunterSourceId, name }) {
+  const result = statements.updateRuntimeFlowNodeByHunterSource.run(name, hunterSourceId)
+
+  if (result.changes === 0) {
+    return null
+  }
+
+  return getRuntimeFlowNodeByHunterSource(hunterSourceId)
+}
+
+export function deleteRuntimeFlowNodeByHunterSource(hunterSourceId) {
+  return statements.deleteRuntimeFlowNodeByHunterSource.run(hunterSourceId).changes > 0
 }
