@@ -266,6 +266,60 @@ function normalizeTextField(value, maxLength) {
   return text.length > maxLength ? text.slice(0, maxLength) : text
 }
 
+function validateHunterSourceStatus(status) {
+  return ['new', 'contacted', 'qualified', 'paused', 'rejected'].includes(status)
+}
+
+function normalizeHunterSourcePayload(body) {
+  const payload = {
+    companyName: normalizeTextField(body?.companyName ?? body?.companyInfo, 160),
+    website: normalizeTextField(body?.website, 240),
+    industry: normalizeTextField(body?.industry, 160),
+    companySize: normalizeTextField(body?.companySize, 80),
+    location: normalizeTextField(body?.location, 160),
+    contactName: normalizeTextField(body?.contactName ?? body?.contactInfo, 160),
+    contactRole: normalizeTextField(body?.contactRole, 160),
+    contactEmail: normalizeTextField(body?.contactEmail, 240),
+    contactPhone: normalizeTextField(body?.contactPhone, 80),
+    contactMessenger: normalizeTextField(body?.contactMessenger, 160),
+    sourceChannel: normalizeTextField(body?.sourceChannel, 160),
+    status: normalizeTextField(body?.status ?? 'new', 40),
+    nextStep: normalizeTextField(body?.nextStep, 240),
+    nextContactAt: normalizeTextField(body?.nextContactAt, 40),
+    summary: normalizeTextField(body?.summary ?? body?.description, 1000),
+  }
+
+  if (!validateHunterSourceStatus(payload.status)) {
+    payload.status = 'new'
+  }
+
+  return {
+    ...payload,
+    companyInfo: payload.companyName,
+    contactInfo: payload.contactName,
+    description: payload.summary,
+  }
+}
+
+function hasHunterSourcePayloadContent(payload) {
+  return [
+    payload.companyName,
+    payload.website,
+    payload.industry,
+    payload.companySize,
+    payload.location,
+    payload.contactName,
+    payload.contactRole,
+    payload.contactEmail,
+    payload.contactPhone,
+    payload.contactMessenger,
+    payload.sourceChannel,
+    payload.nextStep,
+    payload.nextContactAt,
+    payload.summary,
+  ].some(Boolean)
+}
+
 function ensureParticipantRole(request, response, flowId, role) {
   const participantContour = listParticipantContoursForUser(request.user).find((contour) => {
     return contour.flowId === flowId && contour.role === role
@@ -310,9 +364,7 @@ app.get('/api/hunter/sources', withAuth((request, response) => {
 
 app.post('/api/hunter/sources', withAuth((request, response) => {
   const flowId = String(request.body?.flowId ?? '').trim()
-  const companyInfo = normalizeTextField(request.body?.companyInfo, 2000)
-  const contactInfo = normalizeTextField(request.body?.contactInfo, 2000)
-  const description = normalizeTextField(request.body?.description, 4000)
+  const hunterSource = normalizeHunterSourcePayload(request.body)
 
   if (!flowId) {
     response.status(400).json({ message: 'Контур обязателен.' })
@@ -323,7 +375,7 @@ app.post('/api/hunter/sources', withAuth((request, response) => {
     return
   }
 
-  if (!companyInfo && !contactInfo && !description) {
+  if (!hasHunterSourcePayloadContent(hunterSource)) {
     response.status(400).json({ message: 'Заполните хотя бы одно поле.' })
     return
   }
@@ -331,9 +383,7 @@ app.post('/api/hunter/sources', withAuth((request, response) => {
   const source = createHunterSource({
     flowId,
     userId: request.user.id,
-    companyInfo,
-    contactInfo,
-    description,
+    ...hunterSource,
   })
 
   response.status(201).json({ source })
@@ -351,11 +401,9 @@ app.patch('/api/hunter/sources/:sourceId', withAuth((request, response) => {
     return
   }
 
-  const companyInfo = normalizeTextField(request.body?.companyInfo, 2000)
-  const contactInfo = normalizeTextField(request.body?.contactInfo, 2000)
-  const description = normalizeTextField(request.body?.description, 4000)
+  const hunterSource = normalizeHunterSourcePayload(request.body)
 
-  if (!companyInfo && !contactInfo && !description) {
+  if (!hasHunterSourcePayloadContent(hunterSource)) {
     response.status(400).json({ message: 'Заполните хотя бы одно поле.' })
     return
   }
@@ -363,9 +411,7 @@ app.patch('/api/hunter/sources/:sourceId', withAuth((request, response) => {
   const source = updateHunterSource({
     userId: request.user.id,
     sourceId: request.params.sourceId,
-    companyInfo,
-    contactInfo,
-    description,
+    ...hunterSource,
   })
 
   response.json({ source })

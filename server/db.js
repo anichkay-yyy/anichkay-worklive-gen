@@ -79,6 +79,21 @@ db.exec(`
     company_info TEXT NOT NULL DEFAULT '',
     contact_info TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
+    company_name TEXT NOT NULL DEFAULT '',
+    website TEXT NOT NULL DEFAULT '',
+    industry TEXT NOT NULL DEFAULT '',
+    company_size TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    contact_name TEXT NOT NULL DEFAULT '',
+    contact_role TEXT NOT NULL DEFAULT '',
+    contact_email TEXT NOT NULL DEFAULT '',
+    contact_phone TEXT NOT NULL DEFAULT '',
+    contact_messenger TEXT NOT NULL DEFAULT '',
+    source_channel TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'new',
+    next_step TEXT NOT NULL DEFAULT '',
+    next_contact_at TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (flow_id) REFERENCES cash_flow_edges(id) ON DELETE CASCADE
@@ -90,6 +105,30 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS hunter_sources_flow_id_index
     ON hunter_sources (flow_id);
 `)
+
+function ensureColumn(tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all()
+
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
+  }
+}
+
+ensureColumn('hunter_sources', 'company_name', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'website', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'industry', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'company_size', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'location', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'contact_name', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'contact_role', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'contact_email', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'contact_phone', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'contact_messenger', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'source_channel', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'status', "TEXT NOT NULL DEFAULT 'new'")
+ensureColumn('hunter_sources', 'next_step', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'next_contact_at', "TEXT NOT NULL DEFAULT ''")
+ensureColumn('hunter_sources', 'summary', "TEXT NOT NULL DEFAULT ''")
 
 const toContour = (row) => ({
   id: row.id,
@@ -163,6 +202,21 @@ const toHunterSource = (row) => ({
   companyInfo: row.company_info,
   contactInfo: row.contact_info,
   description: row.description,
+  companyName: row.company_name || row.company_info,
+  website: row.website,
+  industry: row.industry,
+  companySize: row.company_size,
+  location: row.location,
+  contactName: row.contact_name || row.contact_info,
+  contactRole: row.contact_role,
+  contactEmail: row.contact_email,
+  contactPhone: row.contact_phone,
+  contactMessenger: row.contact_messenger,
+  sourceChannel: row.source_channel,
+  status: row.status,
+  nextStep: row.next_step,
+  nextContactAt: row.next_contact_at,
+  summary: row.summary || row.description,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   contourId: row.contour_id ?? null,
@@ -424,6 +478,21 @@ const statements = {
       hunter_sources.company_info,
       hunter_sources.contact_info,
       hunter_sources.description,
+      hunter_sources.company_name,
+      hunter_sources.website,
+      hunter_sources.industry,
+      hunter_sources.company_size,
+      hunter_sources.location,
+      hunter_sources.contact_name,
+      hunter_sources.contact_role,
+      hunter_sources.contact_email,
+      hunter_sources.contact_phone,
+      hunter_sources.contact_messenger,
+      hunter_sources.source_channel,
+      hunter_sources.status,
+      hunter_sources.next_step,
+      hunter_sources.next_contact_at,
+      hunter_sources.summary,
       hunter_sources.created_at,
       hunter_sources.updated_at,
       parent_flow.contour_id,
@@ -451,6 +520,21 @@ const statements = {
       hunter_sources.company_info,
       hunter_sources.contact_info,
       hunter_sources.description,
+      hunter_sources.company_name,
+      hunter_sources.website,
+      hunter_sources.industry,
+      hunter_sources.company_size,
+      hunter_sources.location,
+      hunter_sources.contact_name,
+      hunter_sources.contact_role,
+      hunter_sources.contact_email,
+      hunter_sources.contact_phone,
+      hunter_sources.contact_messenger,
+      hunter_sources.source_channel,
+      hunter_sources.status,
+      hunter_sources.next_step,
+      hunter_sources.next_contact_at,
+      hunter_sources.summary,
       hunter_sources.created_at,
       hunter_sources.updated_at,
       parent_flow.contour_id,
@@ -478,6 +562,21 @@ const statements = {
       hunter_sources.company_info,
       hunter_sources.contact_info,
       hunter_sources.description,
+      hunter_sources.company_name,
+      hunter_sources.website,
+      hunter_sources.industry,
+      hunter_sources.company_size,
+      hunter_sources.location,
+      hunter_sources.contact_name,
+      hunter_sources.contact_role,
+      hunter_sources.contact_email,
+      hunter_sources.contact_phone,
+      hunter_sources.contact_messenger,
+      hunter_sources.source_channel,
+      hunter_sources.status,
+      hunter_sources.next_step,
+      hunter_sources.next_contact_at,
+      hunter_sources.summary,
       hunter_sources.created_at,
       hunter_sources.updated_at,
       parent_flow.contour_id,
@@ -503,9 +602,24 @@ const statements = {
       user_id,
       company_info,
       contact_info,
-      description
+      description,
+      company_name,
+      website,
+      industry,
+      company_size,
+      location,
+      contact_name,
+      contact_role,
+      contact_email,
+      contact_phone,
+      contact_messenger,
+      source_channel,
+      status,
+      next_step,
+      next_contact_at,
+      summary
     )
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   updateHunterSource: db.prepare(`
     UPDATE hunter_sources
@@ -513,6 +627,21 @@ const statements = {
       company_info = ?,
       contact_info = ?,
       description = ?,
+      company_name = ?,
+      website = ?,
+      industry = ?,
+      company_size = ?,
+      location = ?,
+      contact_name = ?,
+      contact_role = ?,
+      contact_email = ?,
+      contact_phone = ?,
+      contact_messenger = ?,
+      source_channel = ?,
+      status = ?,
+      next_step = ?,
+      next_contact_at = ?,
+      summary = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE user_id = ? AND id = ?
   `),
@@ -775,6 +904,21 @@ export function createHunterSource({
   companyInfo,
   contactInfo,
   description,
+  companyName,
+  website,
+  industry,
+  companySize,
+  location,
+  contactName,
+  contactRole,
+  contactEmail,
+  contactPhone,
+  contactMessenger,
+  sourceChannel,
+  status,
+  nextStep,
+  nextContactAt,
+  summary,
 }) {
   const id = randomUUID()
   statements.createHunterSource.run(
@@ -784,6 +928,21 @@ export function createHunterSource({
     companyInfo,
     contactInfo,
     description,
+    companyName,
+    website,
+    industry,
+    companySize,
+    location,
+    contactName,
+    contactRole,
+    contactEmail,
+    contactPhone,
+    contactMessenger,
+    sourceChannel,
+    status,
+    nextStep,
+    nextContactAt,
+    summary,
   )
 
   return getHunterSourceForUser(userId, id)
@@ -795,11 +954,41 @@ export function updateHunterSource({
   companyInfo,
   contactInfo,
   description,
+  companyName,
+  website,
+  industry,
+  companySize,
+  location,
+  contactName,
+  contactRole,
+  contactEmail,
+  contactPhone,
+  contactMessenger,
+  sourceChannel,
+  status,
+  nextStep,
+  nextContactAt,
+  summary,
 }) {
   const result = statements.updateHunterSource.run(
     companyInfo,
     contactInfo,
     description,
+    companyName,
+    website,
+    industry,
+    companySize,
+    location,
+    contactName,
+    contactRole,
+    contactEmail,
+    contactPhone,
+    contactMessenger,
+    sourceChannel,
+    status,
+    nextStep,
+    nextContactAt,
+    summary,
     userId,
     sourceId,
   )
