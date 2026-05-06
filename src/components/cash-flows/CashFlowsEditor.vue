@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { Handle, MarkerType, Position, VueFlow, useVueFlow } from '@vue-flow/core'
@@ -21,9 +21,9 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 
 const props = defineProps({
-  contourId: {
-    type: Number,
-    required: true,
+  apiBasePath: {
+    type: String,
+    default: '/api/cash-flows',
   },
   canEdit: {
     type: Boolean,
@@ -49,6 +49,7 @@ const editingFlowId = ref(null)
 const flowSubmitting = ref(false)
 const flowDeleting = ref(false)
 const pendingConnection = ref(null)
+const apiBasePath = computed(() => props.apiBasePath.replace(/\/$/, ''))
 
 const nodeForm = reactive({
   name: '',
@@ -170,15 +171,11 @@ function nodeClass(type) {
 }
 
 async function loadCashFlows() {
-  if (!props.contourId) {
-    return
-  }
-
   loading.value = true
   error.value = ''
 
   try {
-    const payload = await requestJson(`/api/contours/${props.contourId}/cash-flows`)
+    const payload = await requestJson(apiBasePath.value)
     flowNodes.value = payload.nodes.map(mapNode)
     flowEdges.value = payload.flows.map(mapFlow)
 
@@ -245,7 +242,7 @@ async function submitNode() {
   try {
     if (nodeDialogMode.value === 'create') {
       const position = boardCenterPosition()
-      const payload = await requestJson(`/api/contours/${props.contourId}/cash-flows/nodes`, {
+      const payload = await requestJson(`${apiBasePath.value}/nodes`, {
         method: 'POST',
         body: JSON.stringify({
           name: nodeForm.name,
@@ -258,7 +255,7 @@ async function submitNode() {
       flowNodes.value = [...flowNodes.value, mapNode(payload.node)]
     } else if (editingNodeId.value) {
       const payload = await requestJson(
-        `/api/contours/${props.contourId}/cash-flows/nodes/${editingNodeId.value}`,
+        `${apiBasePath.value}/nodes/${editingNodeId.value}`,
         {
           method: 'PATCH',
           body: JSON.stringify({
@@ -291,7 +288,7 @@ async function deleteNode() {
 
   try {
     const nodeId = editingNodeId.value
-    await requestJson(`/api/contours/${props.contourId}/cash-flows/nodes/${nodeId}`, {
+    await requestJson(`${apiBasePath.value}/nodes/${nodeId}`, {
       method: 'DELETE',
     })
     flowNodes.value = flowNodes.value.filter((node) => node.id !== nodeId)
@@ -311,7 +308,7 @@ async function saveNodePosition(event) {
 
   try {
     await requestJson(
-      `/api/contours/${props.contourId}/cash-flows/nodes/${event.node.id}/position`,
+      `${apiBasePath.value}/nodes/${event.node.id}/position`,
       {
         method: 'PATCH',
         body: JSON.stringify({
@@ -375,7 +372,7 @@ async function submitFlow() {
 
   try {
     if (flowDialogMode.value === 'create' && pendingConnection.value) {
-      const payload = await requestJson(`/api/contours/${props.contourId}/cash-flows/flows`, {
+      const payload = await requestJson(`${apiBasePath.value}/flows`, {
         method: 'POST',
         body: JSON.stringify({
           sourceNodeId: pendingConnection.value.source,
@@ -389,7 +386,7 @@ async function submitFlow() {
       flowEdges.value = [...flowEdges.value, mapFlow(payload.flow)]
     } else if (editingFlowId.value) {
       const payload = await requestJson(
-        `/api/contours/${props.contourId}/cash-flows/flows/${editingFlowId.value}`,
+        `${apiBasePath.value}/flows/${editingFlowId.value}`,
         {
           method: 'PATCH',
           body: JSON.stringify({
@@ -424,7 +421,7 @@ async function deleteFlow() {
 
   try {
     const flowId = editingFlowId.value
-    await requestJson(`/api/contours/${props.contourId}/cash-flows/flows/${flowId}`, {
+    await requestJson(`${apiBasePath.value}/flows/${flowId}`, {
       method: 'DELETE',
     })
     flowEdges.value = flowEdges.value.filter((edge) => edge.id !== flowId)
@@ -436,7 +433,7 @@ async function deleteFlow() {
   }
 }
 
-watch(() => props.contourId, loadCashFlows, { immediate: true })
+watch(apiBasePath, loadCashFlows, { immediate: true })
 </script>
 
 <template>
@@ -451,7 +448,7 @@ watch(() => props.contourId, loadCashFlows, { immediate: true })
 
     <div
       ref="boardRef"
-      class="relative h-[calc(100svh-240px)] min-h-[520px] overflow-hidden rounded-lg border bg-background"
+      class="relative h-[calc(100svh-148px)] min-h-[560px] overflow-hidden rounded-lg border bg-background"
     >
       <div class="absolute left-3 top-3 z-10 flex gap-2">
         <Button

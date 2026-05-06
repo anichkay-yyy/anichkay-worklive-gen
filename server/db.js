@@ -165,6 +165,21 @@ const statements = {
     WHERE contour_id = ? AND user_id = ?
   `),
   deleteContour: db.prepare('DELETE FROM contours WHERE id = ?'),
+  getCashFlowBoardContour: db.prepare(`
+    SELECT
+      c.id,
+      c.name,
+      c.description,
+      c.created_at,
+      c.updated_at,
+      COUNT(DISTINCT n.id) + COUNT(DISTINCT e.id) AS cash_flow_records
+    FROM contours c
+    LEFT JOIN cash_flow_nodes n ON n.contour_id = c.id
+    LEFT JOIN cash_flow_edges e ON e.contour_id = c.id
+    GROUP BY c.id
+    ORDER BY cash_flow_records DESC, c.id ASC
+    LIMIT 1
+  `),
   listCashFlowNodes: db.prepare(`
     SELECT
       id,
@@ -372,6 +387,17 @@ export function createContour({ name, description }) {
 
 export function deleteContour(id) {
   return statements.deleteContour.run(id).changes > 0
+}
+
+export function getCashFlowBoardContour() {
+  const contour = statements.getCashFlowBoardContour.get()
+
+  if (contour) {
+    return toContour(contour)
+  }
+
+  const result = statements.createContour.run('Cash-flows', '')
+  return toContour(statements.getContour.get(result.lastInsertRowid))
 }
 
 export function listCashFlowNodes(contourId) {
