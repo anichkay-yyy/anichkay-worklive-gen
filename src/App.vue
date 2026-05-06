@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ArrowLeft, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import AcceptInvitePage from '@/components/auth/AcceptInvitePage.vue'
+import AdminUsersPage from '@/components/admin/AdminUsersPage.vue'
 import CashFlowsEditor from '@/components/cash-flows/CashFlowsEditor.vue'
 import CashFlowSettingsPage from '@/components/cash-flows/CashFlowSettingsPage.vue'
 import ParticipantBoardPage from '@/components/participant/ParticipantBoardPage.vue'
@@ -22,6 +24,7 @@ const authLoading = ref(true)
 const loginSubmitting = ref(false)
 const loginError = ref('')
 const currentPath = ref(window.location.pathname)
+const adminHomeTab = ref('board')
 
 const loginForm = reactive({
   login: 'anichkay',
@@ -55,6 +58,10 @@ const participantBoardPage = computed(() => {
   return flowId && role ? { flowId, role } : null
 })
 const isParticipantBoardPage = computed(() => participantBoardPage.value !== null)
+const invitePageToken = computed(() => {
+  const match = currentPath.value.match(/^\/invite\/([^/]+)$/)
+  return match ? decodeRoutePart(match[1]) : null
+})
 const showBackButton = computed(() => (
   isAdmin.value ? isFlowPage.value : isParticipantBoardPage.value
 ))
@@ -67,7 +74,12 @@ function syncPath() {
 }
 
 function normalizeKnownPath() {
-  if (window.location.pathname !== '/' && !flowPageId.value && !participantBoardPage.value) {
+  if (
+    window.location.pathname !== '/' &&
+    !flowPageId.value &&
+    !participantBoardPage.value &&
+    !invitePageToken.value
+  ) {
     window.history.replaceState({}, '', '/')
     syncPath()
   }
@@ -92,6 +104,7 @@ function pushPath(path) {
 }
 
 function openFlowPage(flowId) {
+  adminHomeTab.value = 'board'
   pushPath(`/cash-flows/flows/${encodeURIComponent(flowId)}`)
 }
 
@@ -100,6 +113,11 @@ function openParticipantBoard(contour) {
 }
 
 function goHome() {
+  pushPath('/')
+}
+
+function handleInviteAccepted(user) {
+  currentUser.value = user
   pushPath('/')
 }
 
@@ -169,7 +187,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="min-h-svh bg-background text-foreground">
+  <AcceptInvitePage
+    v-if="invitePageToken"
+    :token="invitePageToken"
+    @accepted="handleInviteAccepted"
+  />
+
+  <main v-else class="min-h-svh bg-background text-foreground">
     <div
       v-if="authLoading"
       class="mx-auto flex min-h-svh w-full max-w-md items-center px-4 py-6 sm:px-6"
@@ -271,11 +295,34 @@ onUnmounted(() => {
             :flow-id="flowPageId"
             :can-edit="isAdmin"
           />
-          <CashFlowsEditor
-            v-else
-            :can-edit="isAdmin"
-            @open-flow="openFlowPage"
-          />
+
+          <template v-else>
+            <div class="mb-4 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                :variant="adminHomeTab === 'board' ? 'default' : 'outline'"
+                @click="adminHomeTab = 'board'"
+              >
+                Борда
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                :variant="adminHomeTab === 'users' ? 'default' : 'outline'"
+                @click="adminHomeTab = 'users'"
+              >
+                Юзеры
+              </Button>
+            </div>
+
+            <AdminUsersPage v-if="adminHomeTab === 'users'" />
+            <CashFlowsEditor
+              v-else
+              :can-edit="isAdmin"
+              @open-flow="openFlowPage"
+            />
+          </template>
         </template>
 
         <template v-else>

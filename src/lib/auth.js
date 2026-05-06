@@ -60,3 +60,34 @@ export async function login({ login, password }) {
 export async function logout() {
   await authRequest('/auth/logout', { method: 'POST' })
 }
+
+export async function listAdminUsers() {
+  const payload = await authRequest('/auth/admin/users')
+  return payload.users ?? []
+}
+
+export async function inviteAdminUser({ username, email }) {
+  return authRequest('/auth/admin/users/invite', {
+    method: 'POST',
+    body: JSON.stringify({ username, email }),
+  })
+}
+
+export async function createAdminInviteLink(userId) {
+  return authRequest(`/auth/admin/users/${encodeURIComponent(userId)}/invite-link`, {
+    method: 'POST',
+  })
+}
+
+export async function getInvite(token) {
+  return authRequest(`/auth/invites/${encodeURIComponent(token)}`)
+}
+
+export async function acceptInvite({ token, password }) {
+  const payload = await authRequest(`/auth/invites/${encodeURIComponent(token)}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+
+  return payload.user
+}

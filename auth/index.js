@@ -6,18 +6,24 @@ import {
   sessionCookie,
 } from './cookies.js'
 import {
+  activateInvitedUser,
   createSession,
   createUser,
   createOrInviteUser,
   deleteSessionByToken,
   ensureSeedUser,
   findUserByEmail,
+  findUserById,
+  findUserByInviteTokenHash,
   findUserByLogin,
   findUserBySessionToken,
   findUserByUsername,
+  hashSessionToken,
+  listUsers,
   normalizeEmail,
   normalizeUsername,
   publicUser,
+  setUserInvite,
 } from './db.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
@@ -25,6 +31,7 @@ const app = express()
 const port = Number(process.env.AUTH_PORT ?? 3002)
 const sessionTtlMs = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 24 * 7)
 const sessionMaxAgeSeconds = Math.floor(sessionTtlMs / 1000)
+const inviteTtlMs = Number(process.env.INVITE_TTL_MS ?? 1000 * 60 * 60 * 24 * 14)
 
 app.use(express.json({ limit: '32kb' }))
 
@@ -50,6 +57,10 @@ seedDefaultAdmin()
 
 function sessionExpiresAt() {
   return new Date(Date.now() + sessionTtlMs).toISOString()
+}
+
+function inviteExpiresAt() {
+  return new Date(Date.now() + inviteTtlMs).toISOString()
 }
 
 function issueSession(response, user) {
@@ -122,7 +133,11 @@ function requireAdmin(request, response) {
 function getInvitePayload(request) {
   const username = normalizeUsername(String(request.body?.username ?? ''))
   const email = normalizeEmail(String(request.body?.email ?? ''))
-  const contourId = Number(request.body?.contourId)
+  const rawContourId = request.body?.contourId
+  const contourId =
+    rawContourId === undefined || rawContourId === null || rawContourId === ''
+      ? null
+      : Number(rawContourId)
 
   return { username, email, contourId }
 }
@@ -132,8 +147,44 @@ function validateInvitePayload({ username, email, contourId }) {
     validateUsername(username) ||
     (!username ? 'Username обязателен.' : '') ||
     (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 'Некорректный email.' : '') ||
-    (!Number.isInteger(contourId) || contourId <= 0 ? 'Некорректный id контура.' : '')
+    (contourId !== null && (!Number.isInteger(contourId) || contourId <= 0)
+      ? 'Некорректный id контура.'
+      : '')
   )
+}
+
+function requestOrigin(request) {
+  const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim()
+  const forwardedHost = String(request.headers['x-forwarded-host'] ?? '').split(',')[0].trim()
+  const protocol = forwardedProto || request.protocol || 'http'
+  const host = forwardedHost || request.headers.host || `127.0.0.1:${port}`
+
+  return `${protocol}://${host}`
+}
+
+function inviteLink(request, token) {
+  return new URL(`/invite/${encodeURIComponent(token)}`, requestOrigin(request)).toString()
+}
+
+function issueInviteLink(request, user) {
+  if (user.status !== 'invited') {
+    return {
+      user: publicUser(user),
+      inviteLink: null,
+    }
+  }
+
+  const token = crypto.randomBytes(32).toString('base64url')
+  const invitedUser = setUserInvite({
+    userId: user.id,
+    tokenHash: hashSessionToken(token),
+    expiresAt: inviteExpiresAt(),
+  })
+
+  return {
+    user: publicUser(invitedUser),
+    inviteLink: inviteLink(request, token),
+  }
 }
 
 app.get('/auth/health', (_request, response) => {
@@ -213,11 +264,103 @@ app.post('/auth/admin/users/invite', (request, response) => {
     passwordSalt: salt,
     contourId: invite.contourId,
   })
+  const issuedInvite = issueInviteLink(request, result.user)
 
   response.status(result.created ? 201 : 200).json({
-    user: publicUser(result.user),
+    user: issuedInvite.user,
     created: result.created,
+    inviteLink: issuedInvite.inviteLink,
   })
+})
+
+app.get('/auth/admin/users', (request, response) => {
+  const admin = requireAdmin(request, response)
+
+  if (!admin) {
+    return
+  }
+
+  response.json({
+    users: listUsers().map(publicUser),
+  })
+})
+
+app.post('/auth/admin/users/:id/invite-link', (request, response) => {
+  const admin = requireAdmin(request, response)
+
+  if (!admin) {
+    return
+  }
+
+  const userId = Number(request.params.id)
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    response.status(400).json({ message: 'Некорректный id пользователя.' })
+    return
+  }
+
+  const user = findUserById(userId)
+
+  if (!user) {
+    response.status(404).json({ message: 'Пользователь не найден.' })
+    return
+  }
+
+  if (user.status !== 'invited') {
+    response.status(400).json({ message: 'Пользователь уже активен.' })
+    return
+  }
+
+  const issuedInvite = issueInviteLink(request, user)
+
+  response.json({
+    user: issuedInvite.user,
+    inviteLink: issuedInvite.inviteLink,
+  })
+})
+
+app.get('/auth/invites/:token', (request, response) => {
+  const token = String(request.params.token ?? '').trim()
+  const user = token ? findUserByInviteTokenHash(hashSessionToken(token)) : null
+
+  if (!user) {
+    response.status(404).json({ message: 'Инвайт не найден или истек.' })
+    return
+  }
+
+  response.json({ user: publicUser(user) })
+})
+
+app.post('/auth/invites/:token/accept', (request, response) => {
+  const token = String(request.params.token ?? '').trim()
+  const user = token ? findUserByInviteTokenHash(hashSessionToken(token)) : null
+
+  if (!user) {
+    response.status(404).json({ message: 'Инвайт не найден или истек.' })
+    return
+  }
+
+  const password = String(request.body?.password ?? '')
+
+  if (password.length < 8) {
+    response.status(400).json({ message: 'Пароль должен быть не короче 8 символов.' })
+    return
+  }
+
+  const { hash, salt } = hashPassword(password)
+  const activatedUser = activateInvitedUser({
+    userId: user.id,
+    passwordHash: hash,
+    passwordSalt: salt,
+  })
+
+  if (!activatedUser) {
+    response.status(409).json({ message: 'Инвайт уже был принят.' })
+    return
+  }
+
+  issueSession(response, activatedUser)
+  response.json({ user: publicUser(activatedUser) })
 })
 
 app.get('/auth/me', (request, response) => {

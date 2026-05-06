@@ -47,11 +47,17 @@ ensureColumn('users', 'username', 'TEXT')
 ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'user'")
 ensureColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'")
 ensureColumn('users', 'available_contours', "TEXT NOT NULL DEFAULT '[]'")
+ensureColumn('users', 'invite_token_hash', 'TEXT')
+ensureColumn('users', 'invite_expires_at', 'TEXT')
 
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique
     ON users (username)
     WHERE username IS NOT NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS users_invite_token_hash_unique
+    ON users (invite_token_hash)
+    WHERE invite_token_hash IS NOT NULL;
 
   CREATE INDEX IF NOT EXISTS sessions_user_id_index ON sessions (user_id);
   CREATE INDEX IF NOT EXISTS sessions_expires_at_index ON sessions (expires_at);
@@ -78,6 +84,8 @@ const toUser = (row) => ({
   role: row.role,
   status: row.status,
   availableContours: parseAvailableContours(row.available_contours),
+  inviteTokenHash: row.invite_token_hash,
+  inviteExpiresAt: row.invite_expires_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
@@ -97,6 +105,8 @@ const userFields = `
   users.role AS role,
   users.status AS status,
   users.available_contours AS available_contours,
+  users.invite_token_hash AS invite_token_hash,
+  users.invite_expires_at AS invite_expires_at,
   users.created_at AS created_at,
   users.updated_at AS updated_at
 `
@@ -126,6 +136,22 @@ const statements = {
     FROM users
     WHERE email = ? OR username = ?
   `),
+  getUserByInviteTokenHash: db.prepare(`
+    SELECT ${userFields}
+    FROM users
+    WHERE invite_token_hash = ?
+      AND status = 'invited'
+      AND invite_expires_at IS NOT NULL
+      AND datetime(invite_expires_at) > datetime('now')
+  `),
+  listUsers: db.prepare(`
+    SELECT ${userFields}
+    FROM users
+    ORDER BY
+      CASE status WHEN 'invited' THEN 0 ELSE 1 END,
+      created_at DESC,
+      id DESC
+  `),
   updateSeedUser: db.prepare(`
     UPDATE users
     SET
@@ -136,6 +162,8 @@ const statements = {
       role = ?,
       status = ?,
       available_contours = ?,
+      invite_token_hash = NULL,
+      invite_expires_at = NULL,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `),
@@ -143,6 +171,25 @@ const statements = {
     UPDATE users
     SET available_contours = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
+  `),
+  updateUserInvite: db.prepare(`
+    UPDATE users
+    SET
+      invite_token_hash = ?,
+      invite_expires_at = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `),
+  activateInvitedUser: db.prepare(`
+    UPDATE users
+    SET
+      password_hash = ?,
+      password_salt = ?,
+      status = 'active',
+      invite_token_hash = NULL,
+      invite_expires_at = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status = 'invited'
   `),
   createSession: db.prepare(`
     INSERT INTO sessions (user_id, token_hash, expires_at)
@@ -183,6 +230,7 @@ export function publicUser(user) {
     role: user.role,
     status: user.status,
     availableContours: user.availableContours,
+    inviteExpiresAt: user.inviteExpiresAt,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   }
@@ -215,6 +263,11 @@ export function findUserByEmail(email) {
   return user ? toAuthUser(user) : null
 }
 
+export function findUserById(id) {
+  const user = statements.getUserById.get(id)
+  return user ? toAuthUser(user) : null
+}
+
 export function findUserByUsername(username) {
   const user = statements.getUserByUsername.get(username)
   return user ? toAuthUser(user) : null
@@ -224,6 +277,15 @@ export function findUserByLogin(login) {
   const normalizedLogin = login.trim().toLowerCase()
   const user = statements.getUserByLogin.get(normalizedLogin, normalizedLogin)
   return user ? toAuthUser(user) : null
+}
+
+export function findUserByInviteTokenHash(tokenHash) {
+  const user = statements.getUserByInviteTokenHash.get(tokenHash)
+  return user ? toAuthUser(user) : null
+}
+
+export function listUsers() {
+  return statements.listUsers.all().map(toAuthUser)
 }
 
 export function ensureSeedUser({
@@ -267,6 +329,10 @@ export function ensureSeedUser({
 }
 
 function addContourAccess(user, contourId) {
+  if (!Number.isInteger(contourId) || contourId <= 0) {
+    return user
+  }
+
   const contourAccess = String(contourId)
 
   if (user.availableContours.includes('all') || user.availableContours.includes(contourAccess)) {
@@ -292,8 +358,10 @@ export function createOrInviteUser({
     findUserByUsername(normalizedUsername) ?? findUserByEmail(normalizedEmail)
 
   if (existingUser) {
+    const user = addContourAccess(existingUser, contourId)
+
     return {
-      user: addContourAccess(existingUser, contourId),
+      user,
       created: false,
     }
   }
@@ -306,10 +374,25 @@ export function createOrInviteUser({
       passwordSalt,
       role: 'user',
       status: 'invited',
-      availableContours: [String(contourId)],
+      availableContours: Number.isInteger(contourId) && contourId > 0 ? [String(contourId)] : [],
     }),
     created: true,
   }
+}
+
+export function setUserInvite({ userId, tokenHash, expiresAt }) {
+  statements.updateUserInvite.run(tokenHash, expiresAt, userId)
+  return toAuthUser(statements.getUserById.get(userId))
+}
+
+export function activateInvitedUser({ userId, passwordHash, passwordSalt }) {
+  const result = statements.activateInvitedUser.run(passwordHash, passwordSalt, userId)
+
+  if (result.changes === 0) {
+    return null
+  }
+
+  return toAuthUser(statements.getUserById.get(userId))
 }
 
 export function hashSessionToken(token) {
