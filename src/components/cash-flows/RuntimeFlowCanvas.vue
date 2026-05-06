@@ -128,10 +128,7 @@ watch(() => props.flowId, loadRuntimeFlow)
         <Controls />
 
         <template #node-runtimeSource="{ data }">
-          <div
-            class="runtime-source-card"
-            :class="{ 'runtime-source-card-pulse': data.needsNextStep }"
-          >
+          <div class="runtime-source-card">
             <span
               v-if="data.needsNextStep"
               class="runtime-source-dot"
@@ -184,20 +181,6 @@ watch(() => props.flowId, loadRuntimeFlow)
   text-align: center;
 }
 
-.runtime-source-card-pulse {
-  animation: runtime-source-pulse 1.1s ease-in-out infinite;
-}
-
-.runtime-source-card-pulse::before {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border: 2px solid #18181b;
-  border-radius: 10px;
-  pointer-events: none;
-  animation: runtime-source-ring 1.1s ease-out infinite;
-}
-
 .runtime-source-dot {
   position: absolute;
   right: 8px;
@@ -205,41 +188,6 @@ watch(() => props.flowId, loadRuntimeFlow)
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #18181b;
-  animation: runtime-source-dot 1.1s ease-in-out infinite;
-}
-
-@keyframes runtime-source-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.04);
-  }
-}
-
-@keyframes runtime-source-ring {
-  0% {
-    opacity: 0.6;
-    transform: scale(0.96);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(1.16);
-  }
-}
-
-@keyframes runtime-source-dot {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.35;
-  }
+  background: #eab308;
 }
 </style>
