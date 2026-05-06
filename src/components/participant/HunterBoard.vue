@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -30,7 +29,6 @@ const error = ref('')
 const dialogOpen = ref(false)
 const dialogMode = ref('create')
 const selectedSourceId = ref('')
-const viewMode = ref('contour')
 
 const form = reactive({
   companyInfo: '',
@@ -84,20 +82,6 @@ function sourceTitle(source) {
   return firstContactLine || 'Сорс'
 }
 
-function sourceContourMeta(source) {
-  const label = String(source.flowLabel ?? '').trim()
-
-  if (label) {
-    return label
-  }
-
-  if (source.sourceName && source.targetName) {
-    return `${source.sourceName} -> ${source.targetName}`
-  }
-
-  return source.contourName
-}
-
 function resetForm() {
   form.companyInfo = ''
   form.contactInfo = ''
@@ -135,10 +119,7 @@ async function loadSources() {
   error.value = ''
 
   try {
-    const query = viewMode.value === 'contour'
-      ? `?flowId=${encodeURIComponent(props.flowId)}`
-      : ''
-    const payload = await requestJson(`/api/hunter/sources${query}`)
+    const payload = await requestJson(`/api/hunter/sources?flowId=${encodeURIComponent(props.flowId)}`)
     sources.value = payload.sources ?? []
   } catch (requestError) {
     error.value = requestError.message
@@ -209,31 +190,11 @@ async function deleteSource(source) {
 
 onMounted(loadSources)
 watch(() => props.flowId, loadSources)
-watch(viewMode, loadSources)
 </script>
 
 <template>
   <section class="space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div class="flex gap-2">
-        <Button
-          type="button"
-          size="sm"
-          :variant="viewMode === 'contour' ? 'default' : 'outline'"
-          @click="viewMode = 'contour'"
-        >
-          В контуре
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          :variant="viewMode === 'all' ? 'default' : 'outline'"
-          @click="viewMode = 'all'"
-        >
-          Все мои ханты
-        </Button>
-      </div>
-
+    <div class="flex justify-end">
       <Button type="button" size="sm" @click="openCreateDialog">
         <Plus class="size-4" />
         Добавить сорс
@@ -275,13 +236,7 @@ watch(viewMode, loadSources)
               <h2 class="truncate text-base font-semibold leading-6">
                 {{ sourceTitle(source) }}
               </h2>
-              <Badge v-if="viewMode === 'all'" variant="outline">
-                {{ sourceContourMeta(source) }}
-              </Badge>
             </div>
-            <p v-if="viewMode === 'all' && source.contourName" class="mt-1 truncate text-sm text-muted-foreground">
-              {{ source.contourName }}
-            </p>
           </div>
 
           <div class="flex shrink-0 gap-2">
