@@ -30,6 +30,7 @@ const props = defineProps({
     default: false,
   },
 })
+const emit = defineEmits(['open-flow'])
 
 const { fitView, getViewport } = useVueFlow()
 
@@ -44,10 +45,7 @@ const editingNodeId = ref(null)
 const nodeSubmitting = ref(false)
 const nodeDeleting = ref(false)
 const flowDialogOpen = ref(false)
-const flowDialogMode = ref('create')
-const editingFlowId = ref(null)
 const flowSubmitting = ref(false)
-const flowDeleting = ref(false)
 const pendingConnection = ref(null)
 const apiBasePath = computed(() => props.apiBasePath.replace(/\/$/, ''))
 
@@ -334,24 +332,13 @@ function openCreateFlowDialog(connection) {
   }
 
   pendingConnection.value = connection
-  editingFlowId.value = null
-  flowDialogMode.value = 'create'
   resetFlowForm()
   error.value = ''
   flowDialogOpen.value = true
 }
 
-function openEditFlowDialog(event) {
-  if (!props.canEdit) {
-    return
-  }
-
-  editingFlowId.value = event.edge.id
-  pendingConnection.value = null
-  flowDialogMode.value = 'edit'
-  resetFlowForm(event.edge)
-  error.value = ''
-  flowDialogOpen.value = true
+function openFlowPage(event) {
+  emit('open-flow', event.edge.id)
 }
 
 function handleFlowDialogOpen(open) {
@@ -371,7 +358,7 @@ async function submitFlow() {
   error.value = ''
 
   try {
-    if (flowDialogMode.value === 'create' && pendingConnection.value) {
+    if (pendingConnection.value) {
       const payload = await requestJson(`${apiBasePath.value}/flows`, {
         method: 'POST',
         body: JSON.stringify({
@@ -384,22 +371,6 @@ async function submitFlow() {
       })
 
       flowEdges.value = [...flowEdges.value, mapFlow(payload.flow)]
-    } else if (editingFlowId.value) {
-      const payload = await requestJson(
-        `${apiBasePath.value}/flows/${editingFlowId.value}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({
-            label: flowForm.label,
-            constancy: flowForm.constancy,
-            share: flowForm.share,
-          }),
-        },
-      )
-
-      flowEdges.value = flowEdges.value.map((edge) =>
-        edge.id === payload.flow.id ? mapFlow(payload.flow) : edge,
-      )
     }
 
     pendingConnection.value = null
@@ -408,28 +379,6 @@ async function submitFlow() {
     error.value = requestError.message
   } finally {
     flowSubmitting.value = false
-  }
-}
-
-async function deleteFlow() {
-  if (!props.canEdit || !editingFlowId.value || flowDeleting.value) {
-    return
-  }
-
-  flowDeleting.value = true
-  error.value = ''
-
-  try {
-    const flowId = editingFlowId.value
-    await requestJson(`${apiBasePath.value}/flows/${flowId}`, {
-      method: 'DELETE',
-    })
-    flowEdges.value = flowEdges.value.filter((edge) => edge.id !== flowId)
-    flowDialogOpen.value = false
-  } catch (requestError) {
-    error.value = requestError.message
-  } finally {
-    flowDeleting.value = false
   }
 }
 
@@ -482,7 +431,7 @@ watch(apiBasePath, loadCashFlows, { immediate: true })
         class="cash-flow-canvas"
         @connect="openCreateFlowDialog"
         @node-double-click="openEditNodeDialog"
-        @edge-double-click="openEditFlowDialog"
+        @edge-click="openFlowPage"
         @node-drag-stop="saveNodePosition"
       >
         <Background variant="dots" :gap="20" :size="1" color="#d4d4d8" />
@@ -571,8 +520,8 @@ watch(apiBasePath, loadCashFlows, { immediate: true })
     <Dialog :open="flowDialogOpen" @update:open="handleFlowDialogOpen">
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{{ flowDialogMode === 'create' ? 'Новая связь' : 'Связь' }}</DialogTitle>
-          <DialogDescription>Параметры потока</DialogDescription>
+          <DialogTitle>Новая связь</DialogTitle>
+          <DialogDescription>Название связи</DialogDescription>
         </DialogHeader>
 
         <form class="space-y-5" @submit.prevent="submitFlow">
@@ -586,47 +535,7 @@ watch(apiBasePath, loadCashFlows, { immediate: true })
             />
           </div>
 
-          <div class="space-y-2">
-            <div class="flex items-center justify-between gap-3">
-              <Label for="cash-flow-constancy">Constancy</Label>
-              <span class="text-sm text-muted-foreground">{{ flowForm.constancy }}%</span>
-            </div>
-            <Input
-              id="cash-flow-constancy"
-              v-model.number="flowForm.constancy"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-            />
-          </div>
-
-          <div class="space-y-2">
-            <div class="flex items-center justify-between gap-3">
-              <Label for="cash-flow-share">Share</Label>
-              <span class="text-sm text-muted-foreground">{{ flowForm.share }}%</span>
-            </div>
-            <Input
-              id="cash-flow-share"
-              v-model.number="flowForm.share"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-            />
-          </div>
-
-          <DialogFooter class="gap-2">
-            <Button
-              v-if="flowDialogMode === 'edit'"
-              type="button"
-              variant="outline"
-              :disabled="flowDeleting"
-              @click="deleteFlow"
-            >
-              <Trash2 class="size-4" />
-              Удалить
-            </Button>
+          <DialogFooter>
             <Button type="submit" :disabled="flowSubmitting">
               Сохранить
             </Button>
@@ -663,6 +572,10 @@ watch(apiBasePath, loadCashFlows, { immediate: true })
 
 .cash-flow-editor :deep(.vue-flow__edge.animated path) {
   stroke-dasharray: 8 4;
+}
+
+.cash-flow-editor :deep(.vue-flow__edge) {
+  cursor: pointer;
 }
 
 .cash-flow-canvas {

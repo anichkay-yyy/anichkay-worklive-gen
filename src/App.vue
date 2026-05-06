@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { LogOut } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { ArrowLeft, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import CashFlowsEditor from '@/components/cash-flows/CashFlowsEditor.vue'
+import CashFlowSettingsPage from '@/components/cash-flows/CashFlowSettingsPage.vue'
 import {
   Card,
   CardContent,
@@ -18,6 +19,7 @@ const currentUser = ref(null)
 const authLoading = ref(true)
 const loginSubmitting = ref(false)
 const loginError = ref('')
+const currentPath = ref(window.location.pathname)
 
 const loginForm = reactive({
   login: 'anichkay',
@@ -25,14 +27,42 @@ const loginForm = reactive({
 })
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const flowPageId = computed(() => {
+  const match = currentPath.value.match(/^\/cash-flows\/flows\/([^/]+)$/)
+  return match ? decodeURIComponent(match[1]) : null
+})
+const isFlowPage = computed(() => flowPageId.value !== null)
 const canLogin = computed(
   () => loginForm.login.trim().length > 0 && loginForm.password.length > 0 && !loginSubmitting.value,
 )
 
-function normalizeHomePath() {
-  if (window.location.pathname !== '/') {
+function syncPath() {
+  currentPath.value = window.location.pathname
+}
+
+function normalizeKnownPath() {
+  if (window.location.pathname !== '/' && !flowPageId.value) {
     window.history.replaceState({}, '', '/')
+    syncPath()
   }
+}
+
+function pushPath(path) {
+  window.history.pushState({}, '', path)
+  syncPath()
+}
+
+function openFlowPage(flowId) {
+  pushPath(`/cash-flows/flows/${encodeURIComponent(flowId)}`)
+}
+
+function goHome() {
+  pushPath('/')
+}
+
+function handlePopstate() {
+  syncPath()
+  normalizeKnownPath()
 }
 
 async function loadAuth() {
@@ -79,8 +109,14 @@ async function logoutUser() {
 }
 
 onMounted(() => {
-  normalizeHomePath()
+  syncPath()
+  normalizeKnownPath()
+  window.addEventListener('popstate', handlePopstate)
   void loadAuth()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopstate)
 })
 </script>
 
@@ -144,7 +180,19 @@ onMounted(() => {
     </div>
 
     <div v-else class="flex min-h-svh flex-col px-4 py-4 sm:px-6 lg:px-8">
-      <header class="flex justify-end border-b pb-4">
+      <header class="flex items-center justify-between border-b pb-4">
+        <Button
+          v-if="isFlowPage"
+          type="button"
+          variant="outline"
+          size="sm"
+          @click="goHome"
+        >
+          <ArrowLeft class="size-4" />
+          Назад
+        </Button>
+        <div v-else />
+
         <div class="flex items-center justify-end gap-3">
           <div class="min-w-0 text-right">
             <p class="truncate text-sm font-medium leading-5">
@@ -169,7 +217,16 @@ onMounted(() => {
       </header>
 
       <section class="min-w-0 flex-1 py-4">
-        <CashFlowsEditor :can-edit="isAdmin" />
+        <CashFlowSettingsPage
+          v-if="isFlowPage"
+          :flow-id="flowPageId"
+          :can-edit="isAdmin"
+        />
+        <CashFlowsEditor
+          v-else
+          :can-edit="isAdmin"
+          @open-flow="openFlowPage"
+        />
       </section>
     </div>
   </main>
