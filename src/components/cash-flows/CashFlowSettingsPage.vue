@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import BusinessFlowEditor from '@/components/cash-flows/BusinessFlowEditor.vue'
+import RuntimeFlowCanvas from '@/components/cash-flows/RuntimeFlowCanvas.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -172,6 +173,11 @@ watch(() => props.flowId, loadFlow, { immediate: true })
           :api-base-path="businessFlowApiBasePath"
           :can-edit="canEdit"
         />
+      </div>
+
+      <div class="space-y-3">
+        <h2 class="text-lg font-semibold leading-7">Runtime flow</h2>
+        <RuntimeFlowCanvas />
       </div>
     </template>
   </section>
