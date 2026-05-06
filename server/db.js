@@ -253,6 +253,8 @@ const toRuntimeFlowNode = (row) => ({
   hunterSourceId: row.hunter_source_id,
   name: row.name,
   type: row.type,
+  nextStep: row.hunter_next_step ?? null,
+  needsNextStep: Boolean(row.hunter_source_id) && !String(row.hunter_next_step ?? '').trim(),
   positionX: row.position_x,
   positionY: row.position_y,
   createdAt: row.created_at,
@@ -684,32 +686,36 @@ const statements = {
   `),
   listRuntimeFlowNodes: db.prepare(`
     SELECT
-      id,
-      flow_id,
-      hunter_source_id,
-      name,
-      type,
-      position_x,
-      position_y,
-      created_at,
-      updated_at
+      runtime_flow_nodes.id,
+      runtime_flow_nodes.flow_id,
+      runtime_flow_nodes.hunter_source_id,
+      runtime_flow_nodes.name,
+      runtime_flow_nodes.type,
+      hunter_sources.next_step AS hunter_next_step,
+      runtime_flow_nodes.position_x,
+      runtime_flow_nodes.position_y,
+      runtime_flow_nodes.created_at,
+      runtime_flow_nodes.updated_at
     FROM runtime_flow_nodes
-    WHERE flow_id = ?
-    ORDER BY created_at ASC, id ASC
+    LEFT JOIN hunter_sources ON hunter_sources.id = runtime_flow_nodes.hunter_source_id
+    WHERE runtime_flow_nodes.flow_id = ?
+    ORDER BY runtime_flow_nodes.created_at ASC, runtime_flow_nodes.id ASC
   `),
   getRuntimeFlowNodeByHunterSource: db.prepare(`
     SELECT
-      id,
-      flow_id,
-      hunter_source_id,
-      name,
-      type,
-      position_x,
-      position_y,
-      created_at,
-      updated_at
+      runtime_flow_nodes.id,
+      runtime_flow_nodes.flow_id,
+      runtime_flow_nodes.hunter_source_id,
+      runtime_flow_nodes.name,
+      runtime_flow_nodes.type,
+      hunter_sources.next_step AS hunter_next_step,
+      runtime_flow_nodes.position_x,
+      runtime_flow_nodes.position_y,
+      runtime_flow_nodes.created_at,
+      runtime_flow_nodes.updated_at
     FROM runtime_flow_nodes
-    WHERE hunter_source_id = ?
+    LEFT JOIN hunter_sources ON hunter_sources.id = runtime_flow_nodes.hunter_source_id
+    WHERE runtime_flow_nodes.hunter_source_id = ?
   `),
   createRuntimeFlowNode: db.prepare(`
     INSERT INTO runtime_flow_nodes (

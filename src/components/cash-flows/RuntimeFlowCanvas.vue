@@ -46,6 +46,8 @@ async function requestJson(url, options = {}) {
 }
 
 function mapRuntimeNode(node) {
+  const needsNextStep = Boolean(node.needsNextStep)
+
   return {
     id: node.id,
     position: {
@@ -55,7 +57,9 @@ function mapRuntimeNode(node) {
     data: {
       label: node.name,
     },
-    class: 'runtime-source-node',
+    class: needsNextStep
+      ? 'runtime-source-node runtime-source-node-pulse'
+      : 'runtime-source-node',
   }
 }
 
@@ -146,5 +150,20 @@ watch(() => props.flowId, loadRuntimeFlow)
   background: white;
   color: #18181b;
   font-weight: 500;
+}
+
+.runtime-flow-canvas :deep(.runtime-source-node-pulse) {
+  animation: runtime-source-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes runtime-source-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(24 24 27 / 0.28);
+  }
+
+  50% {
+    box-shadow: 0 0 0 8px rgb(24 24 27 / 0);
+  }
 }
 </style>
