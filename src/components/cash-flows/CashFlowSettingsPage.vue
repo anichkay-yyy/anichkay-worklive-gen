@@ -1,5 +1,6 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import BusinessFlowEditor from '@/components/cash-flows/BusinessFlowEditor.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -27,6 +28,7 @@ const form = reactive({
   constancy: 50,
   share: 100,
 })
+const businessFlowApiBasePath = computed(() => `${props.apiBasePath}/flows/${props.flowId}/business-flow`)
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -112,7 +114,7 @@ watch(() => props.flowId, loadFlow, { immediate: true })
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-xl py-6">
+  <section class="w-full space-y-5 py-4">
     <div v-if="loading" class="space-y-5 rounded-lg border bg-card p-6">
       <Skeleton class="h-5 w-32" />
       <Skeleton class="h-9 w-full" />
@@ -127,40 +129,50 @@ watch(() => props.flowId, loadFlow, { immediate: true })
       {{ error }}
     </div>
 
-    <div v-else class="space-y-6 rounded-lg border bg-card p-6">
-      <div class="space-y-2">
-        <div class="flex items-center justify-between gap-3">
-          <Label for="flow-page-constancy">Constancy</Label>
-          <span class="text-sm text-muted-foreground">{{ form.constancy }}%</span>
+    <template v-else>
+      <div class="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-3">
+            <Label for="flow-page-constancy">Constancy</Label>
+            <span class="text-sm text-muted-foreground">{{ form.constancy }}%</span>
+          </div>
+          <Input
+            id="flow-page-constancy"
+            v-model.number="form.constancy"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            :disabled="!canEdit || saving"
+            @change="saveFlowSettings"
+          />
         </div>
-        <Input
-          id="flow-page-constancy"
-          v-model.number="form.constancy"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          :disabled="!canEdit || saving"
-          @change="saveFlowSettings"
-        />
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-3">
+            <Label for="flow-page-share">Share</Label>
+            <span class="text-sm text-muted-foreground">{{ form.share }}%</span>
+          </div>
+          <Input
+            id="flow-page-share"
+            v-model.number="form.share"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            :disabled="!canEdit || saving"
+            @change="saveFlowSettings"
+          />
+        </div>
       </div>
 
-      <div class="space-y-2">
-        <div class="flex items-center justify-between gap-3">
-          <Label for="flow-page-share">Share</Label>
-          <span class="text-sm text-muted-foreground">{{ form.share }}%</span>
-        </div>
-        <Input
-          id="flow-page-share"
-          v-model.number="form.share"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          :disabled="!canEdit || saving"
-          @change="saveFlowSettings"
+      <div class="space-y-3">
+        <h2 class="text-lg font-semibold leading-7">Business flow</h2>
+        <BusinessFlowEditor
+          :api-base-path="businessFlowApiBasePath"
+          :can-edit="canEdit"
         />
       </div>
-    </div>
+    </template>
   </section>
 </template>

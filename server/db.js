@@ -176,8 +176,16 @@ const statements = {
     FROM contours c
     LEFT JOIN cash_flow_nodes n ON n.contour_id = c.id
     LEFT JOIN cash_flow_edges e ON e.contour_id = c.id
+    WHERE c.name NOT LIKE '__business_flow__:%'
     GROUP BY c.id
     ORDER BY cash_flow_records DESC, c.id ASC
+    LIMIT 1
+  `),
+  getContourByName: db.prepare(`
+    SELECT id, name, description, created_at, updated_at
+    FROM contours
+    WHERE name = ?
+    ORDER BY id ASC
     LIMIT 1
   `),
   listCashFlowNodes: db.prepare(`
@@ -397,6 +405,18 @@ export function getCashFlowBoardContour() {
   }
 
   const result = statements.createContour.run('Cash-flows', '')
+  return toContour(statements.getContour.get(result.lastInsertRowid))
+}
+
+export function getBusinessFlowBoardContour(flowId) {
+  const name = `__business_flow__:${flowId}`
+  const contour = statements.getContourByName.get(name)
+
+  if (contour) {
+    return toContour(contour)
+  }
+
+  const result = statements.createContour.run(name, '')
   return toContour(statements.getContour.get(result.lastInsertRowid))
 }
 

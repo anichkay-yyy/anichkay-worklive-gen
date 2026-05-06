@@ -9,6 +9,8 @@ import {
   deleteCashFlow,
   deleteCashFlowNode,
   deleteContour,
+  getBusinessFlowBoardContour,
+  getCashFlow,
   getCashFlowNode,
   getCashFlowBoardContour,
   getContour,
@@ -184,8 +186,32 @@ function withCashFlowBoard(handler) {
   })
 }
 
+function withBusinessFlowBoard(handler) {
+  return withAuth((request, response) => {
+    const parentContour = ensureCashFlowBoardAccess(request, response)
+
+    if (!parentContour) {
+      return null
+    }
+
+    const parentFlow = getCashFlow(parentContour.id, request.params.flowId)
+
+    if (!parentFlow) {
+      response.status(404).json({ message: 'Связь не найдена.' })
+      return null
+    }
+
+    const businessContour = getBusinessFlowBoardContour(parentFlow.id)
+    return handler(request, response, businessContour.id, parentFlow)
+  })
+}
+
 function validateCashFlowNodeType(type) {
   return ['source', 'consumer', 'middleware'].includes(type)
+}
+
+function validateBusinessFlowNodeType(type) {
+  return ['hunter', 'support', 'worker'].includes(type)
 }
 
 function normalizePercent(value) {
@@ -476,6 +502,126 @@ app.delete('/api/cash-flows/flows/:flowId', withCashFlowBoard((request, response
 
   if (!deleteCashFlow(contourId, request.params.flowId)) {
     response.status(404).json({ message: 'Связь не найдена.' })
+    return
+  }
+
+  response.status(204).end()
+}))
+
+app.get('/api/cash-flows/flows/:flowId/business-flow', withBusinessFlowBoard((_request, response, contourId, parentFlow) => {
+  response.json({
+    parentFlow: {
+      id: parentFlow.id,
+      label: parentFlow.label,
+    },
+    nodes: listCashFlowNodes(contourId),
+  })
+}))
+
+app.post('/api/cash-flows/flows/:flowId/business-flow/nodes', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const name = String(request.body?.name ?? '').trim()
+  const type = String(request.body?.type ?? 'hunter')
+  const positionX = normalizePosition(request.body?.positionX ?? 0)
+  const positionY = normalizePosition(request.body?.positionY ?? 0)
+
+  if (!name) {
+    response.status(400).json({ message: 'Название узла обязательно.' })
+    return
+  }
+
+  if (!validateBusinessFlowNodeType(type)) {
+    response.status(400).json({ message: 'Некорректный тип узла.' })
+    return
+  }
+
+  if (positionX === null || positionY === null) {
+    response.status(400).json({ message: 'Некорректная позиция узла.' })
+    return
+  }
+
+  const node = createCashFlowNode({
+    contourId,
+    name,
+    type,
+    positionX,
+    positionY,
+  })
+
+  response.status(201).json({ node })
+}))
+
+app.patch('/api/cash-flows/flows/:flowId/business-flow/nodes/:nodeId', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const name = String(request.body?.name ?? '').trim()
+  const type = String(request.body?.type ?? 'hunter')
+
+  if (!name) {
+    response.status(400).json({ message: 'Название узла обязательно.' })
+    return
+  }
+
+  if (!validateBusinessFlowNodeType(type)) {
+    response.status(400).json({ message: 'Некорректный тип узла.' })
+    return
+  }
+
+  const node = updateCashFlowNode({
+    contourId,
+    nodeId: request.params.nodeId,
+    name,
+    type,
+  })
+
+  if (!node) {
+    response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.json({ node })
+}))
+
+app.patch('/api/cash-flows/flows/:flowId/business-flow/nodes/:nodeId/position', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const positionX = normalizePosition(request.body?.positionX)
+  const positionY = normalizePosition(request.body?.positionY)
+
+  if (positionX === null || positionY === null) {
+    response.status(400).json({ message: 'Некорректная позиция узла.' })
+    return
+  }
+
+  const node = updateCashFlowNodePosition({
+    contourId,
+    nodeId: request.params.nodeId,
+    positionX,
+    positionY,
+  })
+
+  if (!node) {
+    response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.json({ node })
+}))
+
+app.delete('/api/cash-flows/flows/:flowId/business-flow/nodes/:nodeId', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  if (!deleteCashFlowNode(contourId, request.params.nodeId)) {
+    response.status(404).json({ message: 'Узел не найден.' })
     return
   }
 
