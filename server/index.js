@@ -6,23 +6,28 @@ import {
   createCashFlow,
   createCashFlowNode,
   createContour,
+  createHunterSource,
   deleteCashFlow,
   deleteCashFlowNode,
   deleteContour,
+  deleteHunterSource,
   getBusinessFlowBoardContour,
   getCashFlow,
   getCashFlowNode,
   getCashFlowBoardContour,
   getContour,
+  getHunterSourceForUser,
   listCashFlowNodes,
   listCashFlows,
   listContourMembers,
   listContours,
   listContoursByIds,
+  listHunterSourcesForUser,
   listParticipantContoursForUser,
   updateCashFlow,
   updateCashFlowNode,
   updateCashFlowNodePosition,
+  updateHunterSource,
   upsertContourMember,
 } from './db.js'
 
@@ -256,6 +261,24 @@ function normalizePosition(value) {
   return position
 }
 
+function normalizeTextField(value, maxLength) {
+  const text = String(value ?? '').trim()
+  return text.length > maxLength ? text.slice(0, maxLength) : text
+}
+
+function ensureParticipantRole(request, response, flowId, role) {
+  const participantContour = listParticipantContoursForUser(request.user).find((contour) => {
+    return contour.flowId === flowId && contour.role === role
+  })
+
+  if (!participantContour) {
+    response.status(403).json({ message: 'Нет доступа к этой борде.' })
+    return null
+  }
+
+  return participantContour
+}
+
 app.get('/api/contours', withAuth((request, response) => {
   const contours = canAccessAllContours(request.user)
     ? listContours()
@@ -268,6 +291,100 @@ app.get('/api/my-contours', withAuth((request, response) => {
   response.json({
     contours: listParticipantContoursForUser(request.user),
   })
+}))
+
+app.get('/api/hunter/sources', withAuth((request, response) => {
+  const flowId = String(request.query.flowId ?? '').trim()
+
+  if (flowId && !ensureParticipantRole(request, response, flowId, 'hunter')) {
+    return
+  }
+
+  response.json({
+    sources: listHunterSourcesForUser({
+      userId: request.user.id,
+      flowId: flowId || null,
+    }),
+  })
+}))
+
+app.post('/api/hunter/sources', withAuth((request, response) => {
+  const flowId = String(request.body?.flowId ?? '').trim()
+  const companyInfo = normalizeTextField(request.body?.companyInfo, 2000)
+  const contactInfo = normalizeTextField(request.body?.contactInfo, 2000)
+  const description = normalizeTextField(request.body?.description, 4000)
+
+  if (!flowId) {
+    response.status(400).json({ message: 'Контур обязателен.' })
+    return
+  }
+
+  if (!ensureParticipantRole(request, response, flowId, 'hunter')) {
+    return
+  }
+
+  if (!companyInfo && !contactInfo && !description) {
+    response.status(400).json({ message: 'Заполните хотя бы одно поле.' })
+    return
+  }
+
+  const source = createHunterSource({
+    flowId,
+    userId: request.user.id,
+    companyInfo,
+    contactInfo,
+    description,
+  })
+
+  response.status(201).json({ source })
+}))
+
+app.patch('/api/hunter/sources/:sourceId', withAuth((request, response) => {
+  const existingSource = getHunterSourceForUser(request.user.id, request.params.sourceId)
+
+  if (!existingSource) {
+    response.status(404).json({ message: 'Сорс не найден.' })
+    return
+  }
+
+  if (!ensureParticipantRole(request, response, existingSource.flowId, 'hunter')) {
+    return
+  }
+
+  const companyInfo = normalizeTextField(request.body?.companyInfo, 2000)
+  const contactInfo = normalizeTextField(request.body?.contactInfo, 2000)
+  const description = normalizeTextField(request.body?.description, 4000)
+
+  if (!companyInfo && !contactInfo && !description) {
+    response.status(400).json({ message: 'Заполните хотя бы одно поле.' })
+    return
+  }
+
+  const source = updateHunterSource({
+    userId: request.user.id,
+    sourceId: request.params.sourceId,
+    companyInfo,
+    contactInfo,
+    description,
+  })
+
+  response.json({ source })
+}))
+
+app.delete('/api/hunter/sources/:sourceId', withAuth((request, response) => {
+  const existingSource = getHunterSourceForUser(request.user.id, request.params.sourceId)
+
+  if (!existingSource) {
+    response.status(404).json({ message: 'Сорс не найден.' })
+    return
+  }
+
+  if (!ensureParticipantRole(request, response, existingSource.flowId, 'hunter')) {
+    return
+  }
+
+  deleteHunterSource(request.user.id, request.params.sourceId)
+  response.status(204).end()
 }))
 
 app.get('/api/contours/:id', withAuth((request, response) => {

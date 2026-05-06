@@ -71,6 +71,24 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS cash_flow_edges_contour_id_index
     ON cash_flow_edges (contour_id);
+
+  CREATE TABLE IF NOT EXISTS hunter_sources (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    company_info TEXT NOT NULL DEFAULT '',
+    contact_info TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (flow_id) REFERENCES cash_flow_edges(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS hunter_sources_user_id_index
+    ON hunter_sources (user_id);
+
+  CREATE INDEX IF NOT EXISTS hunter_sources_flow_id_index
+    ON hunter_sources (flow_id);
 `)
 
 const toContour = (row) => ({
@@ -136,6 +154,22 @@ const toParticipantContour = (row) => ({
   participantCount: row.participant_count,
   createdAt: row.flow_created_at,
   updatedAt: row.flow_updated_at,
+})
+
+const toHunterSource = (row) => ({
+  id: row.id,
+  flowId: row.flow_id,
+  userId: row.user_id,
+  companyInfo: row.company_info,
+  contactInfo: row.contact_info,
+  description: row.description,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  contourId: row.contour_id ?? null,
+  contourName: row.contour_name ?? null,
+  flowLabel: row.flow_label ?? null,
+  sourceName: row.source_name ?? null,
+  targetName: row.target_name ?? null,
 })
 
 const statements = {
@@ -382,6 +416,110 @@ const statements = {
     DELETE FROM cash_flow_edges
     WHERE contour_id = ? AND id = ?
   `),
+  listHunterSourcesForUser: db.prepare(`
+    SELECT
+      hunter_sources.id,
+      hunter_sources.flow_id,
+      hunter_sources.user_id,
+      hunter_sources.company_info,
+      hunter_sources.contact_info,
+      hunter_sources.description,
+      hunter_sources.created_at,
+      hunter_sources.updated_at,
+      parent_flow.contour_id,
+      parent_flow.label AS flow_label,
+      parent_contour.name AS contour_name,
+      source_node.name AS source_name,
+      target_node.name AS target_name
+    FROM hunter_sources
+    JOIN cash_flow_edges parent_flow ON parent_flow.id = hunter_sources.flow_id
+    JOIN contours parent_contour ON parent_contour.id = parent_flow.contour_id
+    LEFT JOIN cash_flow_nodes source_node
+      ON source_node.contour_id = parent_flow.contour_id
+      AND source_node.id = parent_flow.source_node_id
+    LEFT JOIN cash_flow_nodes target_node
+      ON target_node.contour_id = parent_flow.contour_id
+      AND target_node.id = parent_flow.target_node_id
+    WHERE hunter_sources.user_id = ?
+    ORDER BY hunter_sources.created_at DESC, hunter_sources.id DESC
+  `),
+  listHunterSourcesForUserByFlow: db.prepare(`
+    SELECT
+      hunter_sources.id,
+      hunter_sources.flow_id,
+      hunter_sources.user_id,
+      hunter_sources.company_info,
+      hunter_sources.contact_info,
+      hunter_sources.description,
+      hunter_sources.created_at,
+      hunter_sources.updated_at,
+      parent_flow.contour_id,
+      parent_flow.label AS flow_label,
+      parent_contour.name AS contour_name,
+      source_node.name AS source_name,
+      target_node.name AS target_name
+    FROM hunter_sources
+    JOIN cash_flow_edges parent_flow ON parent_flow.id = hunter_sources.flow_id
+    JOIN contours parent_contour ON parent_contour.id = parent_flow.contour_id
+    LEFT JOIN cash_flow_nodes source_node
+      ON source_node.contour_id = parent_flow.contour_id
+      AND source_node.id = parent_flow.source_node_id
+    LEFT JOIN cash_flow_nodes target_node
+      ON target_node.contour_id = parent_flow.contour_id
+      AND target_node.id = parent_flow.target_node_id
+    WHERE hunter_sources.user_id = ? AND hunter_sources.flow_id = ?
+    ORDER BY hunter_sources.created_at DESC, hunter_sources.id DESC
+  `),
+  getHunterSourceForUser: db.prepare(`
+    SELECT
+      hunter_sources.id,
+      hunter_sources.flow_id,
+      hunter_sources.user_id,
+      hunter_sources.company_info,
+      hunter_sources.contact_info,
+      hunter_sources.description,
+      hunter_sources.created_at,
+      hunter_sources.updated_at,
+      parent_flow.contour_id,
+      parent_flow.label AS flow_label,
+      parent_contour.name AS contour_name,
+      source_node.name AS source_name,
+      target_node.name AS target_name
+    FROM hunter_sources
+    JOIN cash_flow_edges parent_flow ON parent_flow.id = hunter_sources.flow_id
+    JOIN contours parent_contour ON parent_contour.id = parent_flow.contour_id
+    LEFT JOIN cash_flow_nodes source_node
+      ON source_node.contour_id = parent_flow.contour_id
+      AND source_node.id = parent_flow.source_node_id
+    LEFT JOIN cash_flow_nodes target_node
+      ON target_node.contour_id = parent_flow.contour_id
+      AND target_node.id = parent_flow.target_node_id
+    WHERE hunter_sources.user_id = ? AND hunter_sources.id = ?
+  `),
+  createHunterSource: db.prepare(`
+    INSERT INTO hunter_sources (
+      id,
+      flow_id,
+      user_id,
+      company_info,
+      contact_info,
+      description
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  updateHunterSource: db.prepare(`
+    UPDATE hunter_sources
+    SET
+      company_info = ?,
+      contact_info = ?,
+      description = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND id = ?
+  `),
+  deleteHunterSource: db.prepare(`
+    DELETE FROM hunter_sources
+    WHERE user_id = ? AND id = ?
+  `),
 }
 
 export function listContours() {
@@ -615,4 +753,64 @@ export function updateCashFlow({ contourId, flowId, label, constancy, share }) {
 
 export function deleteCashFlow(contourId, flowId) {
   return statements.deleteCashFlow.run(contourId, flowId).changes > 0
+}
+
+export function listHunterSourcesForUser({ userId, flowId = null }) {
+  const statement = flowId
+    ? statements.listHunterSourcesForUserByFlow
+    : statements.listHunterSourcesForUser
+  const params = flowId ? [userId, flowId] : [userId]
+
+  return statement.all(...params).map(toHunterSource)
+}
+
+export function getHunterSourceForUser(userId, sourceId) {
+  const source = statements.getHunterSourceForUser.get(userId, sourceId)
+  return source ? toHunterSource(source) : null
+}
+
+export function createHunterSource({
+  flowId,
+  userId,
+  companyInfo,
+  contactInfo,
+  description,
+}) {
+  const id = randomUUID()
+  statements.createHunterSource.run(
+    id,
+    flowId,
+    userId,
+    companyInfo,
+    contactInfo,
+    description,
+  )
+
+  return getHunterSourceForUser(userId, id)
+}
+
+export function updateHunterSource({
+  userId,
+  sourceId,
+  companyInfo,
+  contactInfo,
+  description,
+}) {
+  const result = statements.updateHunterSource.run(
+    companyInfo,
+    contactInfo,
+    description,
+    userId,
+    sourceId,
+  )
+
+  if (result.changes === 0) {
+    return null
+  }
+
+  return getHunterSourceForUser(userId, sourceId)
+}
+
+export function deleteHunterSource(userId, sourceId) {
+  return statements.deleteHunterSource.run(userId, sourceId).changes > 0
 }

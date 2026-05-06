@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import RuntimeFlowCanvas from '@/components/cash-flows/RuntimeFlowCanvas.vue'
+import HunterBoard from '@/components/participant/HunterBoard.vue'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -149,7 +150,8 @@ watch(() => [props.flowId, props.role], loadContour, { immediate: true })
         </div>
       </div>
 
-      <RuntimeFlowCanvas />
+      <HunterBoard v-if="role === 'hunter'" :flow-id="flowId" />
+      <RuntimeFlowCanvas v-else />
     </template>
   </section>
 </template>
