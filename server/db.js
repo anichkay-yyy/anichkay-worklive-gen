@@ -10,6 +10,8 @@ const db = new Database(path.join(dataDir, 'app.sqlite'))
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
+const BUSINESS_FLOW_CONTOUR_PREFIX = '__business_flow__:'
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS contours (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +115,27 @@ const toCashFlowEdge = (row) => ({
   share: row.share,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+})
+
+const toParticipantContour = (row) => ({
+  id: `${row.flow_id}:${row.role}`,
+  contourId: row.contour_id,
+  contourName: row.contour_name,
+  contourDescription: row.contour_description,
+  contourCreatedAt: row.contour_created_at,
+  contourUpdatedAt: row.contour_updated_at,
+  flowId: row.flow_id,
+  flowLabel: row.flow_label,
+  sourceName: row.source_name,
+  targetName: row.target_name,
+  constancy: row.constancy,
+  share: row.share,
+  role: row.role,
+  participantNodeId: row.participant_node_id,
+  participantNames: row.participant_names ? row.participant_names.split(',') : [],
+  participantCount: row.participant_count,
+  createdAt: row.flow_created_at,
+  updatedAt: row.flow_updated_at,
 })
 
 const statements = {
@@ -261,6 +284,65 @@ const statements = {
     WHERE contour_id = ?
     ORDER BY created_at ASC, id ASC
   `),
+  listParticipantContoursForUser: db.prepare(`
+    WITH assigned_business_nodes AS (
+      SELECT
+        n.id AS participant_node_id,
+        n.name AS participant_name,
+        n.type AS role,
+        n.contour_id AS business_contour_id,
+        substr(c.name, length(?) + 1) AS parent_flow_id
+      FROM cash_flow_nodes n
+      JOIN contours c ON c.id = n.contour_id
+      WHERE substr(c.name, 1, length(?)) = ?
+        AND lower(trim(n.name)) IN (?, ?, ?)
+    )
+    SELECT
+      assigned.parent_flow_id,
+      assigned.role,
+      MIN(assigned.participant_node_id) AS participant_node_id,
+      GROUP_CONCAT(DISTINCT assigned.participant_name) AS participant_names,
+      COUNT(*) AS participant_count,
+      parent_flow.id AS flow_id,
+      parent_flow.contour_id AS contour_id,
+      parent_flow.label AS flow_label,
+      parent_flow.constancy AS constancy,
+      parent_flow.share AS share,
+      parent_flow.created_at AS flow_created_at,
+      parent_flow.updated_at AS flow_updated_at,
+      parent_contour.name AS contour_name,
+      parent_contour.description AS contour_description,
+      parent_contour.created_at AS contour_created_at,
+      parent_contour.updated_at AS contour_updated_at,
+      source_node.name AS source_name,
+      target_node.name AS target_name
+    FROM assigned_business_nodes assigned
+    JOIN cash_flow_edges parent_flow ON parent_flow.id = assigned.parent_flow_id
+    JOIN contours parent_contour ON parent_contour.id = parent_flow.contour_id
+    LEFT JOIN cash_flow_nodes source_node
+      ON source_node.contour_id = parent_flow.contour_id
+      AND source_node.id = parent_flow.source_node_id
+    LEFT JOIN cash_flow_nodes target_node
+      ON target_node.contour_id = parent_flow.contour_id
+      AND target_node.id = parent_flow.target_node_id
+    GROUP BY
+      assigned.parent_flow_id,
+      assigned.role,
+      parent_flow.id,
+      parent_flow.contour_id,
+      parent_flow.label,
+      parent_flow.constancy,
+      parent_flow.share,
+      parent_flow.created_at,
+      parent_flow.updated_at,
+      parent_contour.name,
+      parent_contour.description,
+      parent_contour.created_at,
+      parent_contour.updated_at,
+      source_node.name,
+      target_node.name
+    ORDER BY parent_contour.name ASC, parent_flow.created_at ASC, assigned.role ASC
+  `),
   getCashFlow: db.prepare(`
     SELECT
       id,
@@ -326,6 +408,38 @@ export function listContoursByIds(ids) {
     .all(...contourIds)
 
   return rows.map(toContour)
+}
+
+function userParticipantIdentityValues(user) {
+  const displayName = user?.username || user?.email || ''
+  const values = [
+    user?.username,
+    user?.email,
+    displayName && user?.email ? `${displayName} · ${user.email}` : '',
+  ]
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean)
+
+  const uniqueValues = [...new Set(values)]
+
+  while (uniqueValues.length < 3) {
+    uniqueValues.push(`__no_participant_match_${uniqueValues.length}__`)
+  }
+
+  return uniqueValues.slice(0, 3)
+}
+
+export function listParticipantContoursForUser(user) {
+  const identityValues = userParticipantIdentityValues(user)
+
+  return statements.listParticipantContoursForUser
+    .all(
+      BUSINESS_FLOW_CONTOUR_PREFIX,
+      BUSINESS_FLOW_CONTOUR_PREFIX,
+      BUSINESS_FLOW_CONTOUR_PREFIX,
+      ...identityValues,
+    )
+    .map(toParticipantContour)
 }
 
 export function getContour(id) {

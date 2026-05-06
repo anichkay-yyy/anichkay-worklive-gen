@@ -19,6 +19,7 @@ import {
   listContourMembers,
   listContours,
   listContoursByIds,
+  listParticipantContoursForUser,
   updateCashFlow,
   updateCashFlowNode,
   updateCashFlowNodePosition,
@@ -261,6 +262,12 @@ app.get('/api/contours', withAuth((request, response) => {
     : listContoursByIds(request.user.availableContours ?? [])
 
   response.json({ contours })
+}))
+
+app.get('/api/my-contours', withAuth((request, response) => {
+  response.json({
+    contours: listParticipantContoursForUser(request.user),
+  })
 }))
 
 app.get('/api/contours/:id', withAuth((request, response) => {

@@ -4,6 +4,8 @@ import { ArrowLeft, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import CashFlowsEditor from '@/components/cash-flows/CashFlowsEditor.vue'
 import CashFlowSettingsPage from '@/components/cash-flows/CashFlowSettingsPage.vue'
+import ParticipantBoardPage from '@/components/participant/ParticipantBoardPage.vue'
+import ParticipantContoursPage from '@/components/participant/ParticipantContoursPage.vue'
 import {
   Card,
   CardContent,
@@ -26,12 +28,36 @@ const loginForm = reactive({
   password: '',
 })
 
+function decodeRoutePart(value) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const flowPageId = computed(() => {
   const match = currentPath.value.match(/^\/cash-flows\/flows\/([^/]+)$/)
-  return match ? decodeURIComponent(match[1]) : null
+  return match ? decodeRoutePart(match[1]) : null
 })
 const isFlowPage = computed(() => flowPageId.value !== null)
+const participantBoardPage = computed(() => {
+  const match = currentPath.value.match(/^\/my-contours\/([^/]+)\/([^/]+)$/)
+
+  if (!match) {
+    return null
+  }
+
+  const flowId = decodeRoutePart(match[1])
+  const role = decodeRoutePart(match[2])
+
+  return flowId && role ? { flowId, role } : null
+})
+const isParticipantBoardPage = computed(() => participantBoardPage.value !== null)
+const showBackButton = computed(() => (
+  isAdmin.value ? isFlowPage.value : isParticipantBoardPage.value
+))
 const canLogin = computed(
   () => loginForm.login.trim().length > 0 && loginForm.password.length > 0 && !loginSubmitting.value,
 )
@@ -41,7 +67,20 @@ function syncPath() {
 }
 
 function normalizeKnownPath() {
-  if (window.location.pathname !== '/' && !flowPageId.value) {
+  if (window.location.pathname !== '/' && !flowPageId.value && !participantBoardPage.value) {
+    window.history.replaceState({}, '', '/')
+    syncPath()
+  }
+}
+
+function normalizePathForCurrentUser() {
+  if (!currentUser.value) {
+    return
+  }
+
+  const isAdminUser = currentUser.value.role === 'admin'
+
+  if ((isAdminUser && isParticipantBoardPage.value) || (!isAdminUser && isFlowPage.value)) {
     window.history.replaceState({}, '', '/')
     syncPath()
   }
@@ -56,6 +95,10 @@ function openFlowPage(flowId) {
   pushPath(`/cash-flows/flows/${encodeURIComponent(flowId)}`)
 }
 
+function openParticipantBoard(contour) {
+  pushPath(`/my-contours/${encodeURIComponent(contour.flowId)}/${encodeURIComponent(contour.role)}`)
+}
+
 function goHome() {
   pushPath('/')
 }
@@ -63,6 +106,7 @@ function goHome() {
 function handlePopstate() {
   syncPath()
   normalizeKnownPath()
+  normalizePathForCurrentUser()
 }
 
 async function loadAuth() {
@@ -71,6 +115,7 @@ async function loadAuth() {
 
   try {
     currentUser.value = await getCurrentUser()
+    normalizePathForCurrentUser()
   } catch (requestError) {
     loginError.value = requestError.message
   } finally {
@@ -92,6 +137,7 @@ async function submitLogin() {
       password: loginForm.password,
     })
     loginForm.password = ''
+    normalizePathForCurrentUser()
   } catch (requestError) {
     loginError.value = requestError.message
   } finally {
@@ -105,6 +151,8 @@ async function logoutUser() {
   } finally {
     currentUser.value = null
     loginError.value = ''
+    window.history.replaceState({}, '', '/')
+    syncPath()
   }
 }
 
@@ -182,7 +230,7 @@ onUnmounted(() => {
     <div v-else class="flex min-h-svh flex-col px-4 py-4 sm:px-6 lg:px-8">
       <header class="flex items-center justify-between border-b pb-4">
         <Button
-          v-if="isFlowPage"
+          v-if="showBackButton"
           type="button"
           variant="outline"
           size="sm"
@@ -217,16 +265,30 @@ onUnmounted(() => {
       </header>
 
       <section class="min-w-0 flex-1 py-4">
-        <CashFlowSettingsPage
-          v-if="isFlowPage"
-          :flow-id="flowPageId"
-          :can-edit="isAdmin"
-        />
-        <CashFlowsEditor
-          v-else
-          :can-edit="isAdmin"
-          @open-flow="openFlowPage"
-        />
+        <template v-if="isAdmin">
+          <CashFlowSettingsPage
+            v-if="isFlowPage"
+            :flow-id="flowPageId"
+            :can-edit="isAdmin"
+          />
+          <CashFlowsEditor
+            v-else
+            :can-edit="isAdmin"
+            @open-flow="openFlowPage"
+          />
+        </template>
+
+        <template v-else>
+          <ParticipantBoardPage
+            v-if="participantBoardPage"
+            :flow-id="participantBoardPage.flowId"
+            :role="participantBoardPage.role"
+          />
+          <ParticipantContoursPage
+            v-else
+            @open-board="openParticipantBoard"
+          />
+        </template>
       </section>
     </div>
   </main>
