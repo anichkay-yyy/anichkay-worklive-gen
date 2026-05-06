@@ -128,6 +128,27 @@ function memberMatchesFilters(member, filters) {
   return matchesQuery && matchesRole && matchesAccess
 }
 
+function listMembersWithCurrentUser(user, contourId, filters = {}) {
+  const normalizedFilters = {
+    query: '',
+    role: 'all',
+    access: 'all',
+    ...filters,
+  }
+  const members = listContourMembers(contourId, normalizedFilters)
+  const hasCurrentUser = members.some((member) => member.userId === user.id)
+
+  if (!hasCurrentUser && canAccessContour(user, contourId)) {
+    const ownerMember = currentUserMember(user, contourId)
+
+    if (memberMatchesFilters(ownerMember, normalizedFilters)) {
+      members.unshift(ownerMember)
+    }
+  }
+
+  return members
+}
+
 function validateMemberRole(role) {
   return ['admin', 'editor', 'viewer'].includes(role)
 }
@@ -202,7 +223,7 @@ function withBusinessFlowBoard(handler) {
     }
 
     const businessContour = getBusinessFlowBoardContour(parentFlow.id)
-    return handler(request, response, businessContour.id, parentFlow)
+    return handler(request, response, businessContour.id, parentFlow, parentContour)
   })
 }
 
@@ -279,16 +300,7 @@ app.get('/api/contours/:id/members', withAuth((request, response) => {
   }
 
   const filters = normalizeMemberFilters(request.query)
-  const members = listContourMembers(id, filters)
-  const hasCurrentUser = members.some((member) => member.userId === request.user.id)
-
-  if (!hasCurrentUser && canAccessContour(request.user, id)) {
-    const ownerMember = currentUserMember(request.user, id)
-
-    if (memberMatchesFilters(ownerMember, filters)) {
-      members.unshift(ownerMember)
-    }
-  }
+  const members = listMembersWithCurrentUser(request.user, id, filters)
 
   response.json({ members })
 }))
@@ -508,13 +520,70 @@ app.delete('/api/cash-flows/flows/:flowId', withCashFlowBoard((request, response
   response.status(204).end()
 }))
 
-app.get('/api/cash-flows/flows/:flowId/business-flow', withBusinessFlowBoard((_request, response, contourId, parentFlow) => {
+app.get('/api/cash-flows/flows/:flowId/business-flow', withBusinessFlowBoard((request, response, contourId, parentFlow, parentContour) => {
   response.json({
     parentFlow: {
       id: parentFlow.id,
       label: parentFlow.label,
     },
     nodes: listCashFlowNodes(contourId),
+    members: listMembersWithCurrentUser(request.user, parentContour.id),
+  })
+}))
+
+app.post('/api/cash-flows/flows/:flowId/business-flow/invites', withBusinessFlowBoard(async (request, response, _contourId, _parentFlow, parentContour) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const username = String(request.body?.username ?? '').trim()
+  const email = String(request.body?.email ?? '').trim()
+  const role = String(request.body?.role ?? 'viewer')
+  const access = String(request.body?.access ?? 'view')
+
+  if (!validateMemberRole(role)) {
+    response.status(400).json({ message: 'Некорректная роль участника.' })
+    return
+  }
+
+  if (!validateMemberAccess(access)) {
+    response.status(400).json({ message: 'Некорректный доступ участника.' })
+    return
+  }
+
+  const authResponse = await fetch(`${authServiceUrl}/auth/admin/users/invite`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      cookie: request.headers.cookie ?? '',
+    },
+    body: JSON.stringify({
+      username,
+      email,
+      contourId: parentContour.id,
+    }),
+  })
+  const authPayload = await authResponse.json().catch(() => ({}))
+
+  if (!authResponse.ok) {
+    response.status(authResponse.status).json({
+      message: authPayload.message || 'Не удалось создать приглашение.',
+    })
+    return
+  }
+
+  const member = upsertContourMember({
+    contourId: parentContour.id,
+    user: authPayload.user,
+    role,
+    access,
+    status: 'invited',
+  })
+
+  response.status(authResponse.status === 201 ? 201 : 200).json({
+    member,
+    user: authPayload.user,
+    created: authPayload.created,
   })
 }))
 

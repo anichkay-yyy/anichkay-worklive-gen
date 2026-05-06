@@ -37,15 +37,25 @@ const boardRef = ref(null)
 const loading = ref(false)
 const error = ref('')
 const businessNodes = ref([])
+const members = ref([])
 const nodeDialogOpen = ref(false)
 const nodeDialogMode = ref('create')
 const editingNodeId = ref(null)
 const nodeSubmitting = ref(false)
 const nodeDeleting = ref(false)
+const selectedMember = ref(null)
+const userSearch = ref('')
+const inviting = ref(false)
+const inviteError = ref('')
 
 const nodeForm = reactive({
   name: '',
   type: 'hunter',
+})
+
+const inviteForm = reactive({
+  username: '',
+  email: '',
 })
 
 const typeOrder = {
@@ -65,6 +75,33 @@ const typeClasses = {
   support: 'border-border bg-muted',
   worker: 'border-foreground/60 bg-card shadow-sm',
 }
+
+const filteredMembers = computed(() => {
+  const query = userSearch.value.trim().toLowerCase()
+
+  if (!query) {
+    return members.value
+  }
+
+  return members.value.filter((member) => {
+    return (
+      member.username.toLowerCase().includes(query) ||
+      member.email.toLowerCase().includes(query)
+    )
+  })
+})
+
+const canSubmitNode = computed(
+  () => props.canEdit && nodeForm.name.trim().length > 0 && !nodeSubmitting.value,
+)
+const canInvite = computed(() => {
+  return (
+    props.canEdit &&
+    inviteForm.username.trim().length > 0 &&
+    inviteForm.email.trim().length > 0 &&
+    !inviting.value
+  )
+})
 
 const sortedNodes = computed(() => {
   return [...businessNodes.value].sort((a, b) => {
@@ -158,6 +195,7 @@ async function loadBusinessFlow() {
   try {
     const payload = await requestJson(props.apiBasePath)
     businessNodes.value = payload.nodes.map(mapNode)
+    members.value = payload.members ?? []
 
     if (businessNodes.value.length > 0) {
       await nextTick()
@@ -183,8 +221,92 @@ function boardCenterPosition() {
 }
 
 function resetNodeForm(node) {
-  nodeForm.name = node?.data?.label ?? ''
+  const member = findMember(node?.data?.label ?? '')
+
+  selectedMember.value = member
+  nodeForm.name = member?.username ?? node?.data?.label ?? ''
   nodeForm.type = node?.data?.nodeType ?? 'hunter'
+  userSearch.value = member ? memberLabel(member) : nodeForm.name
+  inviteForm.username = ''
+  inviteForm.email = ''
+  inviteError.value = ''
+}
+
+function memberLabel(member) {
+  return `${member.username} · ${member.email}`
+}
+
+function findMember(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+
+  if (!normalized) {
+    return null
+  }
+
+  return members.value.find((member) => {
+    return (
+      member.username.toLowerCase() === normalized ||
+      member.email.toLowerCase() === normalized
+    )
+  }) ?? null
+}
+
+function selectMember(member) {
+  selectedMember.value = member
+  nodeForm.name = member.username || member.email
+  userSearch.value = memberLabel(member)
+  inviteForm.username = ''
+  inviteForm.email = ''
+  inviteError.value = ''
+}
+
+function prepareInvite() {
+  const query = userSearch.value.trim()
+
+  if (!inviteForm.username) {
+    inviteForm.username = query.includes('@') ? query.split('@')[0] : query
+  }
+
+  if (!inviteForm.email && query.includes('@')) {
+    inviteForm.email = query
+  }
+}
+
+function handleUserSearchInput() {
+  selectedMember.value = null
+  nodeForm.name = ''
+  inviteForm.username = ''
+  inviteForm.email = ''
+  prepareInvite()
+}
+
+async function createInvite() {
+  if (!canInvite.value) {
+    return
+  }
+
+  inviting.value = true
+  inviteError.value = ''
+
+  try {
+    const payload = await requestJson(`${props.apiBasePath}/invites`, {
+      method: 'POST',
+      body: JSON.stringify({
+        username: inviteForm.username,
+        email: inviteForm.email,
+      }),
+    })
+
+    members.value = [
+      payload.member,
+      ...members.value.filter((member) => member.userId !== payload.member.userId),
+    ]
+    selectMember(payload.member)
+  } catch (requestError) {
+    inviteError.value = requestError.message
+  } finally {
+    inviting.value = false
+  }
 }
 
 function openCreateNodeDialog() {
@@ -212,7 +334,7 @@ function openEditNodeDialog(event) {
 }
 
 async function submitNode() {
-  if (!props.canEdit || !nodeForm.name.trim() || nodeSubmitting.value) {
+  if (!canSubmitNode.value) {
     return
   }
 
@@ -382,18 +504,87 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ nodeDialogMode === 'create' ? 'Новый узел' : 'Узел' }}</DialogTitle>
-          <DialogDescription>Название и тип</DialogDescription>
+          <DialogDescription>Пользователь и тип</DialogDescription>
         </DialogHeader>
 
         <form class="space-y-5" @submit.prevent="submitNode">
           <div class="space-y-2">
-            <Label for="business-node-name">Название</Label>
+            <Label for="business-node-user">Пользователь</Label>
             <Input
-              id="business-node-name"
-              v-model="nodeForm.name"
+              id="business-node-user"
+              v-model="userSearch"
               maxlength="120"
               autocomplete="off"
+              placeholder="Username или email"
+              @input="handleUserSearchInput"
+              @focus="prepareInvite"
             />
+
+            <div v-if="selectedMember" class="rounded-md border bg-background px-3 py-2 text-sm">
+              {{ memberLabel(selectedMember) }}
+            </div>
+
+            <div
+              v-else-if="filteredMembers.length > 0"
+              class="max-h-40 overflow-auto rounded-md border bg-background"
+            >
+              <button
+                v-for="member in filteredMembers"
+                :key="`business-member-${member.contourId}-${member.userId}`"
+                type="button"
+                class="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted"
+                @click="selectMember(member)"
+              >
+                <span class="min-w-0">
+                  <span class="block truncate text-sm font-medium">{{ member.username }}</span>
+                  <span class="block truncate text-xs text-muted-foreground">{{ member.email }}</span>
+                </span>
+                <span class="shrink-0 text-xs text-muted-foreground">{{ member.status }}</span>
+              </button>
+            </div>
+
+            <div v-else class="space-y-3 rounded-md border bg-background p-3">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="space-y-2">
+                  <Label for="business-invite-username">Username</Label>
+                  <Input
+                    id="business-invite-username"
+                    v-model="inviteForm.username"
+                    autocomplete="off"
+                    @focus="prepareInvite"
+                  />
+                </div>
+
+                <div class="space-y-2">
+                  <Label for="business-invite-email">Email</Label>
+                  <Input
+                    id="business-invite-email"
+                    v-model="inviteForm.email"
+                    type="email"
+                    autocomplete="off"
+                    @focus="prepareInvite"
+                  />
+                </div>
+              </div>
+
+              <div
+                v-if="inviteError"
+                class="rounded-md border bg-background px-3 py-2 text-sm text-foreground"
+                role="alert"
+              >
+                {{ inviteError }}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                class="w-full"
+                :disabled="!canInvite"
+                @click="createInvite"
+              >
+                Создать invite
+              </Button>
+            </div>
           </div>
 
           <div class="space-y-2">
@@ -420,7 +611,7 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
               <Trash2 class="size-4" />
               Удалить
             </Button>
-            <Button type="submit" :disabled="!nodeForm.name.trim() || nodeSubmitting">
+            <Button type="submit" :disabled="!canSubmitNode">
               Сохранить
             </Button>
           </DialogFooter>
