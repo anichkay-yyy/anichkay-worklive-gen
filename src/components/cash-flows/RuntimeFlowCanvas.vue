@@ -45,21 +45,27 @@ async function requestJson(url, options = {}) {
   return response.json()
 }
 
-function mapRuntimeNode(node) {
-  const needsNextStep = Boolean(node.needsNextStep)
+function runtimeFlowSourceId(flow) {
+  return String(flow.source ?? flow.sourceNodeId ?? flow.source_node_id ?? '')
+}
+
+function mapRuntimeNode(node, outgoingNodeIds) {
+  const nodeType = node.type || 'source'
+  const needsNextStep = nodeType === 'source' && !outgoingNodeIds.has(node.id)
 
   return {
     id: node.id,
+    type: 'runtimeSource',
     position: {
       x: Number(node.positionX ?? 0),
       y: Number(node.positionY ?? 0),
     },
     data: {
-      label: node.name,
+      label: node.name || 'Source',
+      nodeType,
+      needsNextStep,
     },
-    class: needsNextStep
-      ? 'runtime-source-node runtime-source-node-pulse'
-      : 'runtime-source-node',
+    zIndex: needsNextStep ? 2 : 1,
   }
 }
 
@@ -75,8 +81,11 @@ async function loadRuntimeFlow() {
 
   try {
     const payload = await requestJson(`/api/runtime-flows/${encodeURIComponent(props.flowId)}`)
-    runtimeNodes.value = (payload.nodes ?? []).map(mapRuntimeNode)
-    runtimeEdges.value = payload.flows ?? []
+    const flows = payload.flows ?? []
+    const outgoingNodeIds = new Set(flows.map(runtimeFlowSourceId).filter(Boolean))
+
+    runtimeNodes.value = (payload.nodes ?? []).map((node) => mapRuntimeNode(node, outgoingNodeIds))
+    runtimeEdges.value = flows
   } catch (requestError) {
     error.value = requestError.message
   } finally {
@@ -117,6 +126,26 @@ watch(() => props.flowId, loadRuntimeFlow)
       >
         <Background variant="dots" :gap="20" :size="1" color="#d4d4d8" />
         <Controls />
+
+        <template #node-runtimeSource="{ data }">
+          <div
+            class="runtime-source-card"
+            :class="{ 'runtime-source-card-pulse': data.needsNextStep }"
+          >
+            <span
+              v-if="data.needsNextStep"
+              class="runtime-source-dot"
+              aria-hidden="true"
+            />
+
+            <p class="max-w-48 truncate text-sm font-medium leading-5">
+              {{ data.label }}
+            </p>
+            <p class="mt-1 text-xs leading-4 text-muted-foreground">
+              {{ data.nodeType }}
+            </p>
+          </div>
+        </template>
       </VueFlow>
     </div>
   </section>
@@ -144,26 +173,73 @@ watch(() => props.flowId, loadRuntimeFlow)
   height: 100%;
 }
 
-.runtime-flow-canvas :deep(.runtime-source-node) {
-  border: 1px solid #18181b;
+.runtime-source-card {
+  position: relative;
+  min-width: 144px;
+  border: 2px solid #18181b;
   border-radius: 6px;
   background: white;
   color: #18181b;
-  font-weight: 500;
+  padding: 12px 16px;
+  text-align: center;
 }
 
-.runtime-flow-canvas :deep(.runtime-source-node-pulse) {
-  animation: runtime-source-pulse 1.4s ease-in-out infinite;
+.runtime-source-card-pulse {
+  animation: runtime-source-pulse 1.1s ease-in-out infinite;
+}
+
+.runtime-source-card-pulse::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border: 2px solid #18181b;
+  border-radius: 10px;
+  pointer-events: none;
+  animation: runtime-source-ring 1.1s ease-out infinite;
+}
+
+.runtime-source-dot {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #18181b;
+  animation: runtime-source-dot 1.1s ease-in-out infinite;
 }
 
 @keyframes runtime-source-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgb(24 24 27 / 0.28);
+    transform: scale(1);
   }
 
   50% {
-    box-shadow: 0 0 0 8px rgb(24 24 27 / 0);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes runtime-source-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes runtime-source-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
   }
 }
 </style>
