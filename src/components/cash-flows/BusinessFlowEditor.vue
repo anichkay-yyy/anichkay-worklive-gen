@@ -520,12 +520,8 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
               @focus="prepareInvite"
             />
 
-            <div v-if="selectedMember" class="rounded-md border bg-background px-3 py-2 text-sm">
-              {{ memberLabel(selectedMember) }}
-            </div>
-
             <div
-              v-else-if="filteredMembers.length > 0"
+              v-if="!selectedMember && filteredMembers.length > 0"
               class="max-h-40 overflow-auto rounded-md border bg-background"
             >
               <button
