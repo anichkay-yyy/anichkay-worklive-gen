@@ -37,12 +37,16 @@ const boardRef = ref(null)
 const loading = ref(false)
 const error = ref('')
 const businessNodes = ref([])
+const businessEdges = ref([])
 const members = ref([])
 const nodeDialogOpen = ref(false)
 const nodeDialogMode = ref('create')
 const editingNodeId = ref(null)
 const nodeSubmitting = ref(false)
 const nodeDeleting = ref(false)
+const edgeDialogOpen = ref(false)
+const selectedEdge = ref(null)
+const edgeDeleting = ref(false)
 const selectedMember = ref(null)
 const userSearch = ref('')
 const inviting = ref(false)
@@ -58,22 +62,18 @@ const inviteForm = reactive({
   email: '',
 })
 
-const typeOrder = {
-  hunter: 0,
-  support: 1,
-  worker: 2,
-}
-
 const typeLabels = {
   hunter: 'Hunter',
   support: 'Support',
   worker: 'Worker',
+  ultima: 'Ultima',
 }
 
 const typeClasses = {
   hunter: 'border-foreground bg-background',
   support: 'border-border bg-muted',
   worker: 'border-foreground/60 bg-card shadow-sm',
+  ultima: 'border-foreground bg-muted',
 }
 
 const filteredMembers = computed(() => {
@@ -102,40 +102,6 @@ const canInvite = computed(() => {
     inviteForm.email.trim().length > 0 &&
     !inviting.value
   )
-})
-
-const sortedNodes = computed(() => {
-  return [...businessNodes.value].sort((a, b) => {
-    const typeDiff = (typeOrder[a.data.nodeType] ?? 99) - (typeOrder[b.data.nodeType] ?? 99)
-
-    if (typeDiff !== 0) {
-      return typeDiff
-    }
-
-    return a.position.x - b.position.x || a.position.y - b.position.y || a.id.localeCompare(b.id)
-  })
-})
-
-const businessEdges = computed(() => {
-  return sortedNodes.value.slice(0, -1).map((node, index) => {
-    const target = sortedNodes.value[index + 1]
-
-    return {
-      id: `business-${node.id}-${target.id}`,
-      source: node.id,
-      target: target.id,
-      type: 'smoothstep',
-      animated: true,
-      markerEnd: MarkerType.ArrowClosed,
-      interactionWidth: 0,
-      selectable: false,
-      style: {
-        stroke: '#18181b',
-        strokeWidth: 2,
-        opacity: 0.95,
-      },
-    }
-  })
 })
 
 async function requestJson(url, options = {}) {
@@ -185,6 +151,23 @@ function mapNode(node) {
   }
 }
 
+function mapFlow(flow) {
+  return {
+    id: flow.id,
+    source: flow.sourceNodeId,
+    target: flow.targetNodeId,
+    type: 'smoothstep',
+    animated: true,
+    markerEnd: MarkerType.ArrowClosed,
+    interactionWidth: 18,
+    style: {
+      stroke: '#18181b',
+      strokeWidth: 2,
+      opacity: 0.95,
+    },
+  }
+}
+
 function nodeClass(type) {
   return typeClasses[type] || typeClasses.hunter
 }
@@ -196,6 +179,7 @@ async function loadBusinessFlow() {
   try {
     const payload = await requestJson(props.apiBasePath)
     businessNodes.value = payload.nodes.map(mapNode)
+    businessEdges.value = (payload.flows ?? []).map(mapFlow)
     members.value = payload.members ?? []
 
     if (businessNodes.value.length > 0) {
@@ -414,6 +398,9 @@ async function deleteNode() {
       method: 'DELETE',
     })
     businessNodes.value = businessNodes.value.filter((node) => node.id !== nodeId)
+    businessEdges.value = businessEdges.value.filter(
+      (edge) => edge.source !== nodeId && edge.target !== nodeId,
+    )
     nodeDialogOpen.value = false
   } catch (requestError) {
     error.value = requestError.message
@@ -437,6 +424,62 @@ async function saveNodePosition(event) {
     })
   } catch (requestError) {
     error.value = requestError.message
+  }
+}
+
+async function createBusinessEdge(connection) {
+  if (!props.canEdit || !connection.source || !connection.target || connection.source === connection.target) {
+    return
+  }
+
+  error.value = ''
+
+  try {
+    const payload = await requestJson(`${props.apiBasePath}/flows`, {
+      method: 'POST',
+      body: JSON.stringify({
+        sourceNodeId: connection.source,
+        targetNodeId: connection.target,
+      }),
+    })
+    businessEdges.value = [
+      ...businessEdges.value.filter((edge) => edge.id !== payload.flow.id),
+      mapFlow(payload.flow),
+    ]
+  } catch (requestError) {
+    error.value = requestError.message
+  }
+}
+
+function openDeleteEdgeDialog(event) {
+  if (!props.canEdit) {
+    return
+  }
+
+  selectedEdge.value = event.edge
+  edgeDialogOpen.value = true
+}
+
+async function deleteSelectedEdge() {
+  if (!props.canEdit || !selectedEdge.value || edgeDeleting.value) {
+    return
+  }
+
+  edgeDeleting.value = true
+  error.value = ''
+
+  try {
+    const edgeId = selectedEdge.value.id
+    await requestJson(`${props.apiBasePath}/flows/${edgeId}`, {
+      method: 'DELETE',
+    })
+    businessEdges.value = businessEdges.value.filter((edge) => edge.id !== edgeId)
+    selectedEdge.value = null
+    edgeDialogOpen.value = false
+  } catch (requestError) {
+    error.value = requestError.message
+  } finally {
+    edgeDeleting.value = false
   }
 }
 
@@ -479,14 +522,16 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
 
       <VueFlow
         v-model:nodes="businessNodes"
-        :edges="businessEdges"
+        v-model:edges="businessEdges"
         :nodes-draggable="canEdit"
-        :nodes-connectable="false"
+        :nodes-connectable="canEdit"
         :edges-updatable="false"
-        :elements-selectable="false"
+        :elements-selectable="canEdit"
         :zoom-on-double-click="false"
         :fit-view-on-init="true"
         class="business-flow-canvas"
+        @connect="createBusinessEdge"
+        @edge-click="openDeleteEdgeDialog"
         @node-double-click="openEditNodeDialog"
         @node-drag-stop="saveNodePosition"
       >
@@ -501,7 +546,7 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
             <Handle
               type="target"
               :position="Position.Left"
-              :connectable="false"
+              :connectable="canEdit"
               class="business-flow-handle"
             />
 
@@ -515,7 +560,7 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
             <Handle
               type="source"
               :position="Position.Right"
-              :connectable="false"
+              :connectable="canEdit"
               class="business-flow-handle"
             />
           </div>
@@ -619,6 +664,7 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
               <option value="hunter">Hunter</option>
               <option value="support">Support</option>
               <option value="worker">Worker</option>
+              <option value="ultima">Ultima</option>
             </select>
           </div>
 
@@ -638,6 +684,27 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="edgeDialogOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Связь</DialogTitle>
+          <DialogDescription>Удаление связи между узлами</DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            :disabled="edgeDeleting"
+            @click="deleteSelectedEdge"
+          >
+            <Trash2 class="size-4" />
+            Удалить
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   </section>
@@ -673,7 +740,7 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
 }
 
 .business-flow-editor :deep(.vue-flow__edge) {
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .business-flow-canvas {

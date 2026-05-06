@@ -232,7 +232,7 @@ function validateCashFlowNodeType(type) {
 }
 
 function validateBusinessFlowNodeType(type) {
-  return ['hunter', 'support', 'worker'].includes(type)
+  return ['hunter', 'support', 'worker', 'ultima'].includes(type)
 }
 
 function normalizePercent(value) {
@@ -527,6 +527,7 @@ app.get('/api/cash-flows/flows/:flowId/business-flow', withBusinessFlowBoard((re
       label: parentFlow.label,
     },
     nodes: listCashFlowNodes(contourId),
+    flows: listCashFlows(contourId),
     members: listMembersWithCurrentUser(request.user, parentContour.id),
   })
 }))
@@ -691,6 +692,58 @@ app.delete('/api/cash-flows/flows/:flowId/business-flow/nodes/:nodeId', withBusi
 
   if (!deleteCashFlowNode(contourId, request.params.nodeId)) {
     response.status(404).json({ message: 'Узел не найден.' })
+    return
+  }
+
+  response.status(204).end()
+}))
+
+app.post('/api/cash-flows/flows/:flowId/business-flow/flows', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  const sourceNodeId = String(request.body?.sourceNodeId ?? '').trim()
+  const targetNodeId = String(request.body?.targetNodeId ?? '').trim()
+
+  if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {
+    response.status(400).json({ message: 'Некорректная связь.' })
+    return
+  }
+
+  if (!getCashFlowNode(contourId, sourceNodeId) || !getCashFlowNode(contourId, targetNodeId)) {
+    response.status(400).json({ message: 'Узлы связи не найдены в этой борде.' })
+    return
+  }
+
+  const existingFlow = listCashFlows(contourId).find((flow) => {
+    return flow.sourceNodeId === sourceNodeId && flow.targetNodeId === targetNodeId
+  })
+
+  if (existingFlow) {
+    response.json({ flow: existingFlow })
+    return
+  }
+
+  const flow = createCashFlow({
+    contourId,
+    sourceNodeId,
+    targetNodeId,
+    label: '',
+    constancy: 100,
+    share: 100,
+  })
+
+  response.status(201).json({ flow })
+}))
+
+app.delete('/api/cash-flows/flows/:flowId/business-flow/flows/:businessFlowId', withBusinessFlowBoard((request, response, contourId) => {
+  if (!requireAdmin(request, response)) {
+    return
+  }
+
+  if (!deleteCashFlow(contourId, request.params.businessFlowId)) {
+    response.status(404).json({ message: 'Связь не найдена.' })
     return
   }
 
