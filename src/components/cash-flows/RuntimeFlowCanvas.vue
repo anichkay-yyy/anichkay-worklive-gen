@@ -189,5 +189,20 @@ watch(() => props.flowId, loadRuntimeFlow)
   height: 8px;
   border-radius: 9999px;
   background: #eab308;
+  box-shadow: 0 0 0 0 rgb(234 179 8 / 0.45);
+  animation: runtime-source-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes runtime-source-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgb(234 179 8 / 0.45);
+  }
+
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 6px rgb(234 179 8 / 0);
+  }
 }
 </style>
