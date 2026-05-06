@@ -154,11 +154,26 @@ function validateInvitePayload({ username, email, contourId }) {
 }
 
 function requestOrigin(request) {
+  const configuredOrigin = String(process.env.PUBLIC_APP_URL ?? '').trim()
+  const requestHeaderOrigin = String(request.headers.origin ?? '').trim()
+  const requestHeaderReferer = String(request.headers.referer ?? '').trim()
   const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim()
   const forwardedHost = String(request.headers['x-forwarded-host'] ?? '').split(',')[0].trim()
+
+  for (const candidate of [configuredOrigin, requestHeaderOrigin, requestHeaderReferer]) {
+    if (!candidate || candidate === 'null') {
+      continue
+    }
+
+    try {
+      return new URL(candidate).origin
+    } catch {
+      // Try the next source.
+    }
+  }
+
   const protocol = forwardedProto || request.protocol || 'http'
   const host = forwardedHost || request.headers.host || `127.0.0.1:${port}`
-
   return `${protocol}://${host}`
 }
 

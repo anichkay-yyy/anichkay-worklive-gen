@@ -22,7 +22,7 @@ const props = defineProps({
 const emit = defineEmits(['accepted'])
 
 const inviteUser = ref(null)
-const loading = ref(false)
+const loading = ref(true)
 const submitting = ref(false)
 const error = ref('')
 
@@ -97,7 +97,7 @@ onMounted(loadInvite)
             {{ error }}
           </div>
 
-          <form v-else class="space-y-5" @submit.prevent="submitAccept">
+          <form v-else-if="inviteUser" class="space-y-5" @submit.prevent="submitAccept">
             <div class="rounded-md border bg-background px-3 py-2 text-sm">
               <p class="font-medium leading-5">
                 {{ inviteUser.username || inviteUser.email }}
@@ -139,6 +139,11 @@ onMounted(loadInvite)
               Принять invite
             </Button>
           </form>
+
+          <div v-else class="space-y-3">
+            <Skeleton class="h-10 w-full" />
+            <Skeleton class="h-10 w-full" />
+          </div>
         </CardContent>
       </Card>
     </div>
