@@ -86,7 +86,8 @@ const filteredMembers = computed(() => {
   return members.value.filter((member) => {
     return (
       member.username.toLowerCase().includes(query) ||
-      member.email.toLowerCase().includes(query)
+      member.email.toLowerCase().includes(query) ||
+      normalizedMemberLabel(member).includes(query)
     )
   })
 })
@@ -236,6 +237,10 @@ function memberLabel(member) {
   return `${member.username} · ${member.email}`
 }
 
+function normalizedMemberLabel(member) {
+  return memberLabel(member).toLowerCase()
+}
+
 function findMember(value) {
   const normalized = String(value ?? '').trim().toLowerCase()
 
@@ -246,7 +251,8 @@ function findMember(value) {
   return members.value.find((member) => {
     return (
       member.username.toLowerCase() === normalized ||
-      member.email.toLowerCase() === normalized
+      member.email.toLowerCase() === normalized ||
+      normalizedMemberLabel(member) === normalized
     )
   }) ?? null
 }
@@ -262,6 +268,16 @@ function selectMember(member) {
 
 function prepareInvite() {
   const query = userSearch.value.trim()
+  const member = findMember(query)
+
+  if (member) {
+    selectMember(member)
+    return
+  }
+
+  if (selectedMember.value) {
+    return
+  }
 
   if (!inviteForm.username) {
     inviteForm.username = query.includes('@') ? query.split('@')[0] : query
@@ -273,6 +289,13 @@ function prepareInvite() {
 }
 
 function handleUserSearchInput() {
+  const member = findMember(userSearch.value)
+
+  if (member) {
+    selectMember(member)
+    return
+  }
+
   selectedMember.value = null
   nodeForm.name = ''
   inviteForm.username = ''
@@ -539,7 +562,10 @@ watch(() => props.apiBasePath, loadBusinessFlow, { immediate: true })
               </button>
             </div>
 
-            <div v-else class="space-y-3 rounded-md border bg-background p-3">
+            <div
+              v-if="!selectedMember && filteredMembers.length === 0"
+              class="space-y-3 rounded-md border bg-background p-3"
+            >
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="space-y-2">
                   <Label for="business-invite-username">Username</Label>
