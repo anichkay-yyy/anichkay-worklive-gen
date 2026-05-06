@@ -144,12 +144,8 @@ onMounted(() => {
     </div>
 
     <div v-else class="flex min-h-svh flex-col px-4 py-4 sm:px-6 lg:px-8">
-      <header class="flex flex-col gap-4 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="min-w-0">
-          <h1 class="text-2xl font-semibold leading-tight sm:text-3xl">Cash-flows</h1>
-        </div>
-
-        <div class="flex items-center justify-between gap-3 sm:justify-end">
+      <header class="flex justify-end border-b pb-4">
+        <div class="flex items-center justify-end gap-3">
           <div class="min-w-0 text-right">
             <p class="truncate text-sm font-medium leading-5">
               {{ currentUser.username || currentUser.email }}
